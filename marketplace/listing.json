@@ -1,0 +1,13 @@
+{
+  "listing_name": "DashData''Quality — Data Quality",
+  "pypi_package": "dash-dq",
+  "short_description": "Run interactive data quality checks on DataFrames and Unity Catalog tables — no Spark expertise required.",
+  "long_description": "Part of the Dashlibs suite for Databricks. Provides an ipywidgets notebook UI plus a Python API. Install with %pip install dash-dq and call dashdq.launch() to open the interactive wizard.",
+  "categories": ["Data Engineering", "Developer Tools"],
+  "provider": "dash-libs",
+  "source_url": "https://github.com/dash-libs/dash-dq",
+  "documentation_url": "https://github.com/dash-libs/dash-dq/tree/main/docs/api",
+  "license": "Apache-2.0",
+  "supported_platforms": ["Databricks Runtime 12.x+"],
+  "install_instructions": "%pip install dash-dq"
+}
