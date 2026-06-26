@@ -12,7 +12,7 @@ Workflow::
     # Or all-in-one:
     dashdq.launch()
 """
-from dashdq.suite import run_checks, DQReport
+from dashdq.suite import run_checks, table_quality_ok, DQReport
 from dashdq.checks import CHECKS_REGISTRY, CheckResult
 
 __version__ = "0.1.9"
@@ -21,7 +21,10 @@ __email__ = "darshan.innovation@gmail.com"
 __license__ = "Apache-2.0"
 __url__ = "https://github.com/dash-libs/dash-dq"
 
-__all__ = ["configure", "run_checks", "launch", "DQReport", "CheckResult", "CHECKS_REGISTRY"]
+__all__ = [
+    "configure", "run_checks", "table_quality_ok", "launch",
+    "DQReport", "CheckResult", "CHECKS_REGISTRY",
+]
 
 
 def configure(spark=None) -> dict:

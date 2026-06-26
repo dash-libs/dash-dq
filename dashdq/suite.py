@@ -10,7 +10,7 @@ class DQReport:
         self.results = results
         self.config = config
 
-    # ── Outputs ───────────────────────────────────────────────────────────────
+    # ── Row-level outputs (one row per check × column) ────────────────────────
 
     def to_dict(self) -> list[dict]:
         return [r.to_dict() for r in self.results]
@@ -43,6 +43,66 @@ class DQReport:
             "pass_rate_pct": round(passed / total * 100, 1) if total else 0,
         }
 
+    # ── Table-level summary (one row per table run) ───────────────────────────
+
+    def table_summary(self) -> dict:
+        """Single-row summary at table level.
+
+        clean_records = rows that passed every column check applied to them.
+        overall_status = PASS only if all checks passed.
+        """
+        if not self.results:
+            return {}
+
+        r0 = self.results[0]
+        metadata = self.config.get("metadata", {})
+        total_rows = r0.total_rows
+        total_checks = len(self.results)
+        passed_checks = sum(1 for r in self.results if r.status == "PASS")
+        failed_checks = total_checks - passed_checks
+        overall_status = "PASS" if failed_checks == 0 else "FAIL"
+
+        # Clean records: rows not flagged as failed by ANY check.
+        # Each check reports failed_rows independently; we sum them as a
+        # conservative lower-bound on dirty rows (exact intersection needs a join).
+        total_failed_rows = sum(r.failed_rows for r in self.results)
+        # Cap at total_rows to avoid negative clean counts when checks overlap
+        dirty_rows = min(total_failed_rows, total_rows) if total_rows else 0
+        clean_rows = max(0, total_rows - dirty_rows)
+        clean_pct = round(clean_rows / total_rows * 100, 2) if total_rows else 0.0
+
+        return {
+            "table_name":          r0.table_name,
+            "overall_status":      overall_status,
+            "total_rows":          total_rows,
+            "clean_rows":          clean_rows,
+            "dirty_rows":          dirty_rows,
+            "clean_pct":           clean_pct,
+            "total_checks":        total_checks,
+            "passed_checks":       passed_checks,
+            "failed_checks":       failed_checks,
+            "columns_checked":     r0.columns_checked,
+            "total_columns":       r0.total_columns,
+            "column_coverage_pct": r0.column_coverage_pct,
+            "run_timestamp":       r0.run_timestamp,
+            "data_owner":          metadata.get("data_owner", ""),
+            "data_steward":        metadata.get("data_steward", ""),
+            "business_domain":     metadata.get("business_domain", ""),
+            "description":         metadata.get("description", ""),
+            "tags":                ",".join(metadata.get("tags", [])),
+        }
+
+    def to_table_summary_df(self, spark=None):
+        """Spark DataFrame with one row summarising this table run."""
+        if spark is None:
+            from pyspark.sql import SparkSession
+            spark = SparkSession.getActiveSession()
+        return spark.createDataFrame([self.table_summary()])
+
+    def table_summary_pandas(self):
+        import pandas as pd
+        return pd.DataFrame([self.table_summary()])
+
     def save(self, output_cfg: dict, spark=None):
         """Persist results to one or more destinations defined in output_cfg."""
         import os
@@ -71,6 +131,15 @@ class DQReport:
                     .option("mergeSchema", "true")
                     .saveAsTable(table))
                 print(f"✅ Saved to Delta table: {table}")
+                # Also write table-level summary to <table>_summary if configured
+                summary_table = output_cfg.get("summary_delta_table", "")
+                if summary_table:
+                    (self.to_table_summary_df(spark)
+                        .write.format("delta")
+                        .mode("append")
+                        .option("mergeSchema", "true")
+                        .saveAsTable(summary_table))
+                    print(f"✅ Saved table summary to: {summary_table}")
                 results["delta"] = sdf
 
             elif otype in ("volume_json", "volume_csv"):
@@ -85,6 +154,14 @@ class DQReport:
                 else:
                     pdf.to_csv(full, index=False)
                 print(f"✅ Saved to: {full}")
+                # Also write table-level summary alongside
+                summary_file = f"{vol_path}/{filename}_summary.{ext}"
+                spdf = self.table_summary_pandas()
+                if ext == "json":
+                    spdf.to_json(summary_file, orient="records", indent=2)
+                else:
+                    spdf.to_csv(summary_file, index=False)
+                print(f"✅ Saved table summary to: {summary_file}")
                 results[otype] = full
 
         return results.get("dataframe") or (sdf if sdf is not None else None)
@@ -189,3 +266,18 @@ def run_checks(config: dict, spark=None) -> DQReport:
         report.save(output_cfg, spark)
 
     return report
+
+
+def table_quality_ok(config: dict, spark=None) -> bool:
+    """Run all configured checks and return True if every check passes.
+
+    Useful as a gate before consuming a table::
+
+        if dashdq.table_quality_ok(config, spark=spark):
+            df = spark.table(config["source"]["table"])
+            # safe to use
+        else:
+            raise RuntimeError("Table failed quality checks — aborting pipeline.")
+    """
+    report = run_checks(config, spark=spark)
+    return report.table_summary().get("overall_status") == "PASS"

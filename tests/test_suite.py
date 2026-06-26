@@ -1,9 +1,7 @@
 """Tests for checks registry and DQReport — no Spark required."""
-import json
 import pytest
 from dashdq.checks import (
     CHECKS_REGISTRY, CheckResult, DQ_DIMENSIONS,
-    _not_null, _unique, _between, _in_set,
 )
 from dashdq.suite import DQReport
 
@@ -93,6 +91,68 @@ def test_report_to_pandas():
     assert len(pdf) == 2
     assert "status" in pdf.columns
     assert list(pdf["status"]) == ["PASS", "FAIL"]
+
+
+# ── table_summary ─────────────────────────────────────────────────────────────
+
+def _make_result_full(status="PASS", total=100, passed=100, failed=0):
+    return CheckResult(
+        table_name="cat.sch.tbl", column_name="c",
+        check_name="expect_column_values_to_not_be_null",
+        dq_dimension="Completeness",
+        total_rows=total, passed_rows=passed, failed_rows=failed,
+        passed_pct=round(passed / total * 100, 2),
+        threshold_pct=100.0, status=status,
+        columns_checked=2, total_columns=5, column_coverage_pct=40.0,
+        run_timestamp="2026-01-01T00:00:00",
+    )
+
+
+def test_table_summary_all_pass():
+    config = {"metadata": {"data_owner": "Alice", "tags": ["finance"]}}
+    report = DQReport([_make_result_full("PASS"), _make_result_full("PASS")], config=config)
+    s = report.table_summary()
+    assert s["overall_status"] == "PASS"
+    assert s["passed_checks"] == 2
+    assert s["failed_checks"] == 0
+    assert s["clean_rows"] == 100
+    assert s["clean_pct"] == 100.0
+    assert s["data_owner"] == "Alice"
+    assert s["tags"] == "finance"
+
+
+def test_table_summary_with_failures():
+    config = {"metadata": {}}
+    report = DQReport([
+        _make_result_full("PASS", total=100, passed=100, failed=0),
+        _make_result_full("FAIL", total=100, passed=80,  failed=20),
+    ], config=config)
+    s = report.table_summary()
+    assert s["overall_status"] == "FAIL"
+    assert s["failed_checks"] == 1
+    assert s["dirty_rows"] == 20
+    assert s["clean_rows"] == 80
+
+
+def test_table_summary_dirty_rows_capped_at_total():
+    # Two checks each failing 70 rows → sum=140 > total=100; cap at 100
+    config = {"metadata": {}}
+    report = DQReport([
+        _make_result_full("FAIL", total=100, passed=30, failed=70),
+        _make_result_full("FAIL", total=100, passed=30, failed=70),
+    ], config=config)
+    s = report.table_summary()
+    assert s["dirty_rows"] == 100
+    assert s["clean_rows"] == 0
+
+
+def test_table_summary_pandas_shape():
+    config = {"metadata": {}}
+    report = DQReport([_make_result_full()], config=config)
+    pdf = report.table_summary_pandas()
+    assert len(pdf) == 1
+    assert "overall_status" in pdf.columns
+    assert "clean_rows" in pdf.columns
 
 
 # ── run_checks config validation ──────────────────────────────────────────────
