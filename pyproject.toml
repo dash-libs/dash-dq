@@ -25,4 +25,12 @@ dependencies = [
 dev = ["pytest", "pytest-cov", "hatch", "pdoc", "ruff"]
 
 [project.urls]
-Homepage = "https://github.com/darshan-innovation/dash-dq"
+Homepage = "https://github.com/dash-libs/dash-dq"
+Documentation = "https://github.com/dash-libs/dash-dq#readme"
+Source = "https://github.com/dash-libs/dash-dq"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dashdq"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
