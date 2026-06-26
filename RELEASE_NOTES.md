@@ -1,7 +1,7 @@
-## DashDQ v0.1.4
+## DashDQ v0.1.5
 
 **Released:** 2026-06-26
-**Previous:** v0.1.3
+**Previous:** v0.1.4
 
 
 
@@ -12,12 +12,12 @@
 
 ### Install
 ```bash
-pip install dash-dq==0.1.4
+pip install dash-dq==0.1.5
 ```
 
 ### Quick Start (Databricks notebook)
 ```python
-%pip install dash-dq==0.1.4
+%pip install dash-dq==0.1.5
 import dashdq
 dashdq.launch()
 ```
