@@ -1,11 +1,12 @@
 """DashDQ UI — Databricks-themed interactive wizard.
 
 Tabs:
-  ⚙️ Environment  — workspace paths, defaults, pre-filled from config file
-  📊 Source        — Unity Catalog cascade: catalog → schema → table
-  🏷️ Metadata      — owner, steward, domain, tags, description (stored in output)
-  ✅ Checks        — per-column multi-check builder with complex-check wizard
-  📤 Output        — multi-destination: DataFrame, Delta, Volume JSON/CSV
+  📊 Source   — Unity Catalog cascade: catalog → schema → table
+  ✅ Checks   — per-column multi-check builder with complex-check wizard
+  📤 Output   — multi-destination: DataFrame, Delta, Volume JSON/CSV
+  🏷️ Metadata — owner, steward, domain, tags, description (stored in output)
+
+  ⚙️ Settings panel (collapsible, top-right) — workspace paths and defaults
 """
 from __future__ import annotations
 import json
@@ -343,29 +344,40 @@ class DashDQWizard:
     # ──────────────────── Build UI ────────────────────────────────────────────
 
     def _build(self):
-        tab_env    = self._make_env_tab()
         tab_source = self._make_source_tab()
-        tab_meta   = self._make_meta_tab()
         tab_checks = self._make_checks_tab()
         tab_output = self._make_output_tab()
+        tab_meta   = self._make_meta_tab()
 
-        tabs = w.Tab(children=[tab_env, tab_source, tab_meta, tab_checks, tab_output])
+        tabs = w.Tab(children=[tab_source, tab_checks, tab_output, tab_meta])
         for i, title in enumerate([
-            "⚙️  Environment", "📊  Source", "🏷️  Metadata",
-            "✅  Checks",       "📤  Output",
+            "📊  Source", "✅  Checks", "📤  Output", "🏷️  Metadata",
         ]):
             tabs.set_title(i, title)
         tabs.add_class("dq-tabs")
 
-        # Auto-load catalogs when Source tab is activated
-        def _on_tab(change):
-            if change["new"] == 1 and not getattr(self, "_catalogs_loaded", False):
-                self._do_load_catalogs()
+        # Collapsible env settings panel (hidden by default)
+        self._env_panel = self._make_env_panel()
+        self._env_panel.layout.display = "none"
 
-        tabs.observe(_on_tab, names="selected_index")
+        gear_box, gear_btn = _styled_btn("⚙️  Settings", "outline")
+        gear_btn.layout = w.Layout(height="28px")
+
+        def _toggle_env(_):
+            self._env_panel.layout.display = (
+                "none" if self._env_panel.layout.display == "" else ""
+            )
+        gear_btn.on_click(_toggle_env)
+
+        header = w.HBox([
+            _h("<div style='font-size:15px;font-weight:700;color:#1B3A4B;"
+               "letter-spacing:.2px'>DashDQ — Data Quality Wizard</div>"),
+            gear_box,
+        ], layout=w.Layout(justify_content="space-between", align_items="center",
+                           margin="0 0 8px 0"))
 
         # Save Config button
-        self._save_status = w.VBox([])   # children-swap, no Output widget
+        self._save_status = w.VBox([])
         save_box, save_btn = _styled_btn("💾  Save Configuration", "success")
         save_btn.on_click(self._do_save)
         save_btn.layout = w.Layout(height="38px", min_width="200px")
@@ -375,18 +387,23 @@ class DashDQWizard:
         save_bar.add_class("dq-gap-8")
 
         root = w.VBox([
+            header,
+            self._env_panel,
             tabs,
             save_bar,
         ], layout=w.Layout(max_width="1140px", padding="12px"))
         root.add_class("dq-root")
         display(root)
 
-        # Populate dynamic panels after display — avoids serverless Output widget issues
+        # Load catalogs immediately (no lazy tab-visit needed)
+        self._do_load_catalogs()
+
+        # Populate check form params
         self._on_check_select({"new": self._check_dd.value})
 
-    # ──────────────────── Tab 1: Environment ──────────────────────────────────
+    # ──────────────────── Settings panel (collapsible) ────────────────────────
 
-    def _make_env_tab(self) -> w.VBox:
+    def _make_env_panel(self) -> w.VBox:
         e = self.env
         self._e_config_dir  = w.Text(value=e.get("config_dir", ""),
                                      placeholder="/Workspace/Shared/dashdq_configs",
@@ -426,16 +443,16 @@ class DashDQWizard:
         save_btn.on_click(_save)
         reload_btn.on_click(_reload)
 
-        return w.VBox([
-            _sec("⚙️  Environment Configuration"),
-            _info("These defaults are loaded from <code>~/dashdq_env.json</code> "
+        panel = w.VBox([
+            _h("<div style='font-size:12px;font-weight:700;color:#1B3A4B;margin-bottom:10px'>"
+               "⚙️  Environment Settings</div>"),
+            _info("Defaults are loaded from <code>~/dashdq_env.json</code> "
                   "(or <code>$DASHDQ_ENV_PATH</code>). Edit and save to persist across sessions.", "info"),
 
             w.VBox([
                 _label("DashDQ Config Directory"),
                 _h("<div style='font-size:11px;color:#888;margin-bottom:4px'>"
-                   "Directory where existing DashDQ check config JSON files are stored. "
-                   "Checks for a selected table will be auto-loaded from here.</div>"),
+                   "Existing check config JSON files are auto-loaded for a selected table.</div>"),
                 self._e_config_dir,
             ], layout=w.Layout(margin="0 0 12px 0")),
 
@@ -449,9 +466,11 @@ class DashDQWizard:
 
             w.HBox([save_box, reload_box]),
             env_status,
-        ], layout=w.Layout(padding="18px"))
+        ], layout=w.Layout(padding="14px", margin="0 0 10px 0"))
+        panel.add_class("dq-form-box")
+        return panel
 
-    # ──────────────────── Tab 2: Source ───────────────────────────────────────
+    # ──────────────────── Tab 1: Source ───────────────────────────────────────
 
     def _make_source_tab(self) -> w.VBox:
         self._cat_dd = w.Dropdown(
@@ -472,26 +491,22 @@ class DashDQWizard:
         self._load_tbl_btn.disabled = True
         self._load_tbl_btn.layout  = w.Layout(height="36px")
 
-        refresh_box, refresh_btn = _styled_btn("↺  Refresh Catalogs", "outline")
         self._source_info = w.VBox([])   # children-swap
 
         self._cat_dd.observe(self._on_catalog_change, names="value")
         self._sch_dd.observe(self._on_schema_change,  names="value")
         self._tbl_dd.observe(self._on_table_change,   names="value")
         self._load_tbl_btn.on_click(self._do_load_table)
-        refresh_btn.on_click(self._do_load_catalogs)
 
         return w.VBox([
             _sec("📊  Source Table"),
-            _info("Select a Unity Catalog table. Catalogs load on first visit to this tab.", "info"),
+            _info("Catalogs load automatically. Select catalog → schema → table, then click Load.", "info"),
 
-            w.HBox([
-                w.VBox([_label("Catalog"), self._cat_dd], layout=w.Layout(flex="1", margin="0 10px 0 0")),
-                w.VBox([_label("Schema"),  self._sch_dd], layout=w.Layout(flex="1", margin="0 10px 0 0")),
-                w.VBox([_label("Table"),   self._tbl_dd], layout=w.Layout(flex="1")),
-            ], layout=w.Layout(margin="0 0 12px 0", align_items="flex-end")),
+            w.VBox([_label("Catalog"), self._cat_dd], layout=w.Layout(margin="0 0 10px 0")),
+            w.VBox([_label("Schema"),  self._sch_dd], layout=w.Layout(margin="0 0 10px 0")),
+            w.VBox([_label("Table"),   self._tbl_dd], layout=w.Layout(margin="0 0 12px 0")),
 
-            w.HBox([self._load_tbl_btn_box, refresh_box], layout=w.Layout(margin="0 0 10px 0")),
+            w.HBox([self._load_tbl_btn_box], layout=w.Layout(margin="0 0 10px 0")),
             self._source_info,
         ], layout=w.Layout(padding="18px"))
 
@@ -580,7 +595,7 @@ class DashDQWizard:
         self._refresh_col_list()
         self._update_output_filename()
 
-    # ──────────────────── Tab 3: Metadata ─────────────────────────────────────
+    # ──────────────────── Tab 4: Metadata ─────────────────────────────────────
 
     def _make_meta_tab(self) -> w.VBox:
         self._m_owner   = w.Text(placeholder="e.g. Jane Smith",   layout=w.Layout(width="100%"))
@@ -608,7 +623,7 @@ class DashDQWizard:
             _field("Description", self._m_desc),
         ], layout=w.Layout(padding="18px"))
 
-    # ──────────────────── Tab 4: Checks ───────────────────────────────────────
+    # ──────────────────── Tab 2: Checks ───────────────────────────────────────
 
     def _make_checks_tab(self) -> w.VBox:
         # Column selector
@@ -963,7 +978,7 @@ class DashDQWizard:
         self._refresh_col_list()
         self._render_col_checks()
 
-    # ──────────────────── Tab 5: Output ───────────────────────────────────────
+    # ──────────────────── Tab 3: Output ───────────────────────────────────────
 
     def _make_output_tab(self) -> w.VBox:
         self._o_df       = w.Checkbox(value=True,  description="In-memory DataFrame",
@@ -980,11 +995,8 @@ class DashDQWizard:
         self._o_vol_path  = w.Text(value=self.env.get("default_volume_path", "/Volumes/"),
                                    placeholder="/Volumes/catalog/schema/volume",
                                    layout=w.Layout(width="100%"))
-        self._o_filename  = w.Text(placeholder="auto-suggested",
+        self._o_filename  = w.Text(placeholder="auto-generated on table load",
                                    layout=w.Layout(width="100%"))
-
-        sug_box, sug_btn = _styled_btn("✨ Suggest", "outline")
-        sug_btn.on_click(self._update_output_filename)
 
         # Conditional panels
         self._delta_panel = w.VBox([
@@ -994,19 +1006,24 @@ class DashDQWizard:
 
         self._vol_panel = w.VBox([
             _field("Volume Path", self._o_vol_path),
-            w.HBox([
-                w.VBox([_label("Filename (no extension)"), self._o_filename], layout=w.Layout(flex="1")),
-                w.VBox([_h("&nbsp;"), sug_box]),
-            ], layout=w.Layout(align_items="flex-end")),
+            w.VBox([_label("Filename (no extension)"), self._o_filename]),
         ], layout=w.Layout(padding="10px 14px", margin="0 0 8px 0", display="none"))
         self._vol_panel.add_class("dq-sub-panel")
 
         def _toggle_delta(change):
             self._delta_panel.layout.display = "" if change["new"] else "none"
+            if change["new"] and not self._o_delta_tbl.value.strip():
+                cat = self.env.get("default_catalog", "")
+                sch = self.env.get("default_schema", "")
+                tbl = self._full.split(".")[-1] if self._full else "dq_results"
+                if cat and sch:
+                    self._o_delta_tbl.value = f"{cat}.{sch}.dq_{tbl}"
 
         def _toggle_vol(change):
             show = self._o_vol_json.value or self._o_vol_csv.value
             self._vol_panel.layout.display = "" if show else "none"
+            if show and not self._o_vol_path.value.strip():
+                self._o_vol_path.value = self.env.get("default_volume_path", "/Volumes/")
 
         self._o_delta.observe(_toggle_delta, names="value")
         self._o_vol_json.observe(_toggle_vol, names="value")
@@ -1025,7 +1042,7 @@ class DashDQWizard:
         return w.VBox([
             _sec("📤  Output Configuration"),
             _info("Select <b>one or more</b> output destinations. "
-                  "Results are 1 row per check × column with all metadata.", "info"),
+                  "Fields pre-fill from your Settings defaults.", "info"),
             out_opts,
             self._delta_panel,
             self._vol_panel,
