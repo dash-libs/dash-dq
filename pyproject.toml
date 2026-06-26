@@ -17,12 +17,11 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
 ]
-dependencies = [
-    "ipywidgets>=8.0",
-]
+dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "hatch", "pdoc", "ruff", "pandas"]
+ui  = ["ipywidgets>=7.6"]
+dev = ["pytest", "pytest-cov", "hatch", "pdoc", "ruff", "pandas", "ipywidgets>=7.6"]
 
 [project.urls]
 Homepage = "https://github.com/dash-libs/dash-dq"

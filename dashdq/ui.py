@@ -12,10 +12,22 @@ import json
 import os
 from datetime import datetime
 
-import ipywidgets as w
-from IPython.display import display, HTML, clear_output
+try:
+    import ipywidgets as w
+    from IPython.display import display, HTML, clear_output
+except ImportError as _e:
+    raise ImportError(
+        "ipywidgets is required for the DashDQ UI.\n"
+        "Your Databricks cluster should already include it — if not, run:\n"
+        "  %pip install 'ipywidgets>=7.6'\n"
+        "Do NOT pip-install ipywidgets separately if your cluster already has it,\n"
+        "as a Python/JS version mismatch causes 'Error displaying widget: undefined'."
+    ) from _e
 
 from dashdq.checks import CHECKS_REGISTRY, DQ_DIMENSIONS
+
+# Keep a strong reference so the wizard isn't garbage-collected mid-session.
+_active_wizard: "DashDQWizard | None" = None
 
 # ─── Theme constants ──────────────────────────────────────────────────────────
 
@@ -132,6 +144,22 @@ _CSS = """
 }
 .dq-pass { color:#86EFAC; }
 .dq-fail { color:#FCA5A5; }
+
+/* ── Container panels (ipywidgets-7-safe: no Layout border/border_radius) ── */
+.dq-form-box  { border:1px solid #E8EBF0!important; border-radius:6px!important;
+                padding:14px!important; margin-top:10px!important; background:#FAFBFC!important; }
+.dq-check-row { border:1px solid #E8EBF0!important; border-radius:4px!important;
+                padding:7px 10px!important; margin-bottom:6px!important; background:#fff!important; }
+.dq-out-opts  { border:1px solid #E8EBF0!important; border-radius:6px!important;
+                padding:14px!important; margin-bottom:12px!important; }
+.dq-sub-panel { border:1px solid #E8EBF0!important; border-radius:4px!important;
+                padding:10px 14px!important; margin-bottom:8px!important; }
+
+/* ── HBox gap shim (ipywidgets 7 has no gap in Layout) ── */
+.dq-gap-8 > .p-Panel > *,  .dq-gap-8 > .lm-Panel > *,
+.dq-gap-8 > .widget-hbox > * { margin-right:8px!important; }
+.dq-gap-8 > .p-Panel > *:last-child,  .dq-gap-8 > .lm-Panel > *:last-child,
+.dq-gap-8 > .widget-hbox > *:last-child { margin-right:0!important; }
 </style>
 """
 
@@ -342,10 +370,13 @@ class DashDQWizard:
         save_btn.on_click(self._do_save)
         save_btn.layout = w.Layout(height="38px", min_width="200px")
 
+        save_bar = w.HBox([save_box, self._save_status],
+                          layout=w.Layout(align_items="center", margin="14px 0 0 0"))
+        save_bar.add_class("dq-gap-8")
+
         root = w.VBox([
             tabs,
-            w.HBox([save_box, self._save_status],
-                   layout=w.Layout(align_items="center", margin="14px 0 0 0", gap="12px")),
+            save_bar,
         ], layout=w.Layout(max_width="1140px", padding="12px"))
         root.add_class("dq-root")
         display(root)
@@ -417,7 +448,7 @@ class DashDQWizard:
 
             _field("Default Volume Output Path", self._e_vol_path),
 
-            w.HBox([save_box, reload_box], layout=w.Layout(gap="8px")),
+            w.HBox([save_box, reload_box]),
             env_status,
         ], layout=w.Layout(padding="18px"))
 
@@ -461,7 +492,7 @@ class DashDQWizard:
                 w.VBox([_label("Table"),   self._tbl_dd], layout=w.Layout(flex="1")),
             ], layout=w.Layout(margin="0 0 12px 0", align_items="flex-end")),
 
-            w.HBox([self._load_tbl_btn_box, refresh_box], layout=w.Layout(gap="8px", margin="0 0 10px 0")),
+            w.HBox([self._load_tbl_btn_box, refresh_box], layout=w.Layout(margin="0 0 10px 0")),
             self._source_info,
         ], layout=w.Layout(padding="18px"))
 
@@ -628,11 +659,8 @@ class DashDQWizard:
             self._simple_out,
             self._complex_out,
             w.HBox([self._add_btn_box], layout=w.Layout(margin="8px 0 0 0")),
-        ], layout=w.Layout(
-            border="1px solid #E8EBF0", border_radius="6px",
-            padding="14px", margin="10px 0 0 0",
-            background_color="#FAFBFC",
-        ))
+        ], layout=w.Layout(padding="14px", margin="10px 0 0 0"))
+        self._add_form.add_class("dq-form-box")
 
         # Trigger initial param form
         self._on_check_select({"new": self._check_dd.value})
@@ -738,15 +766,9 @@ class DashDQWizard:
                 f"<span style='font-size:11px;color:#AAA;margin-top:2px;display:block'>"
                 f"{params_str}</span></div>"
             ),
-            w.HBox([ed_box, rm_box], layout=w.Layout(gap="4px")),
-        ], layout=w.Layout(
-            align_items="flex-start",
-            border="1px solid #E8EBF0",
-            border_radius="4px",
-            padding="7px 10px",
-            margin="0 0 6px 0",
-            background_color="#fff",
-        ))
+            w.HBox([ed_box, rm_box]),
+        ], layout=w.Layout(align_items="flex-start", padding="7px 10px", margin="0 0 6px 0"))
+        row.add_class("dq-check-row")
         display(row)
 
     def _on_check_select(self, change):
@@ -967,23 +989,17 @@ class DashDQWizard:
         # Conditional panels
         self._delta_panel = w.VBox([
             w.VBox([_label("Delta Table Name"), self._o_delta_tbl]),
-        ], layout=w.Layout(
-            border="1px solid #E8EBF0", border_radius="4px",
-            padding="10px 14px", margin="0 0 8px 0",
-            display="none",
-        ))
+        ], layout=w.Layout(padding="10px 14px", margin="0 0 8px 0", display="none"))
+        self._delta_panel.add_class("dq-sub-panel")
 
         self._vol_panel = w.VBox([
             _field("Volume Path", self._o_vol_path),
             w.HBox([
                 w.VBox([_label("Filename (no extension)"), self._o_filename], layout=w.Layout(flex="1")),
                 w.VBox([_h("&nbsp;"), sug_box]),
-            ], layout=w.Layout(align_items="flex-end", gap="8px")),
-        ], layout=w.Layout(
-            border="1px solid #E8EBF0", border_radius="4px",
-            padding="10px 14px", margin="0 0 8px 0",
-            display="none",
-        ))
+            ], layout=w.Layout(align_items="flex-end")),
+        ], layout=w.Layout(padding="10px 14px", margin="0 0 8px 0", display="none"))
+        self._vol_panel.add_class("dq-sub-panel")
 
         def _toggle_delta(change):
             self._delta_panel.layout.display = "" if change["new"] else "none"
@@ -996,21 +1012,21 @@ class DashDQWizard:
         self._o_vol_json.observe(_toggle_vol, names="value")
         self._o_vol_csv.observe(_toggle_vol, names="value")
 
+        out_opts = w.VBox([
+            _h("<div style='font-size:12px;font-weight:600;color:#1B3A4B;"
+               "margin-bottom:8px'>Output Destinations</div>"),
+            self._o_df,
+            self._o_delta,
+            self._o_vol_json,
+            self._o_vol_csv,
+        ], layout=w.Layout(padding="14px", margin="0 0 12px 0"))
+        out_opts.add_class("dq-out-opts")
+
         return w.VBox([
             _sec("📤  Output Configuration"),
             _info("Select <b>one or more</b> output destinations. "
                   "Results are 1 row per check × column with all metadata.", "info"),
-            w.VBox([
-                _h("<div style='font-size:12px;font-weight:600;color:#1B3A4B;"
-                   "margin-bottom:8px'>Output Destinations</div>"),
-                self._o_df,
-                self._o_delta,
-                self._o_vol_json,
-                self._o_vol_csv,
-            ], layout=w.Layout(
-                border="1px solid #E8EBF0", border_radius="6px",
-                padding="14px", margin="0 0 12px 0",
-            )),
+            out_opts,
             self._delta_panel,
             self._vol_panel,
         ], layout=w.Layout(padding="18px"))
@@ -1076,8 +1092,9 @@ def configure(spark=None) -> dict:
       ✅ Checks      — add / edit / remove checks per column
       📤 Output      — choose one or more output destinations
     """
+    global _active_wizard
     config: dict = {}
-    DashDQWizard(spark=spark, config_target=config)
+    _active_wizard = DashDQWizard(spark=spark, config_target=config)
     return config
 
 
