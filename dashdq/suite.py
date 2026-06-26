@@ -103,6 +103,52 @@ class DQReport:
         import pandas as pd
         return pd.DataFrame([self.table_summary()])
 
+    def save_table_summary(self, output_cfg: dict, spark=None):
+        """Persist the table-level summary row to configured destinations."""
+        import os
+
+        types = output_cfg.get("types") or (
+            [output_cfg["type"]] if "type" in output_cfg else ["dataframe"]
+        )
+        summary = self.table_summary()
+        if not summary:
+            return
+
+        for otype in types:
+            if otype == "delta":
+                if spark is None:
+                    from pyspark.sql import SparkSession
+                    spark = SparkSession.getActiveSession()
+                table = output_cfg.get("delta_table", "")
+                if not table:
+                    print("⚠️  delta_table not set — skipping Delta summary output")
+                    continue
+                (self.to_table_summary_df(spark)
+                    .write.format("delta")
+                    .mode("append")
+                    .option("mergeSchema", "true")
+                    .saveAsTable(table))
+                print(f"✅ Saved table summary to Delta: {table}")
+
+            elif otype in ("volume_json", "volume_csv"):
+                vol_path = output_cfg.get("volume_path", "").rstrip("/")
+                table_name = self.config.get("source", {}).get("table", "")
+                tbl = table_name.split(".")[-1] if table_name else "table"
+                filename = (
+                    output_cfg.get("filename")
+                    or f"dq_{tbl}_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                )
+                ext = "json" if otype == "volume_json" else "csv"
+                os.makedirs(vol_path, exist_ok=True)
+                full = f"{vol_path}/{filename}.{ext}"
+                import pandas as pd
+                spdf = pd.DataFrame([summary])
+                if ext == "json":
+                    spdf.to_json(full, orient="records", indent=2)
+                else:
+                    spdf.to_csv(full, index=False)
+                print(f"✅ Saved table summary to: {full}")
+
     def save(self, output_cfg: dict, spark=None):
         """Persist results to one or more destinations defined in output_cfg."""
         import os
@@ -275,11 +321,17 @@ def run_checks(config, spark=None) -> DQReport:
 
     report = DQReport(results, config)
 
-    # Auto-save if output block present and not dataframe-only
+    # Auto-save check-level output if configured
     output_cfg = config.get("output", {})
     types = output_cfg.get("types") or ([output_cfg.get("type", "dataframe")])
     if output_cfg and types != ["dataframe"]:
         report.save(output_cfg, spark)
+
+    # Auto-save table-level summary output if configured (new separate key)
+    tbl_output_cfg = config.get("table_output", {})
+    tbl_types = tbl_output_cfg.get("types") or ([tbl_output_cfg.get("type", "dataframe")])
+    if tbl_output_cfg and tbl_types != ["dataframe"]:
+        report.save_table_summary(tbl_output_cfg, spark)
 
     return report
 
