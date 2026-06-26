@@ -124,10 +124,13 @@ def run_checks(config: dict, spark=None) -> DQReport:
             continue
 
         try:
-            total, passed, failed = entry["fn"](df, col, params)
+            if entry.get("cross_table"):
+                total, passed, failed = entry["fn"](df, col, params, spark)
+            else:
+                total, passed, failed = entry["fn"](df, col, params)
             passed_pct = round(passed / total * 100, 2) if total > 0 else 0.0
             status = "PASS" if passed_pct >= threshold else "FAIL"
-            if not entry.get("table_level"):
+            if not entry.get("table_level") and not entry.get("compound"):
                 checked_cols.add(col)
         except Exception as exc:
             total = passed = failed = 0

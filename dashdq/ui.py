@@ -45,55 +45,147 @@ def _make_param_widgets(params: list, all_cols: list):
     import ipywidgets as w
     widgets = {}
     for p in params:
-        if p in ("min_value", "max_value"):
+        if p in ("min_value", "max_value", "sum_value"):
             widgets[p] = w.FloatText(
                 description=f"{p}:",
                 layout=w.Layout(width="240px"),
-                style={"description_width": "90px"},
+                style={"description_width": "120px"},
             )
-        elif p == "value_set":
+        elif p == "value":
+            widgets[p] = w.FloatText(
+                description="value:",
+                layout=w.Layout(width="240px"),
+                style={"description_width": "120px"},
+            )
+        elif p in ("n_days", "n_minutes"):
+            widgets[p] = w.IntText(
+                value=30 if p == "n_days" else 60,
+                description=f"{p}:",
+                layout=w.Layout(width="200px"),
+                style={"description_width": "120px"},
+            )
+        elif p == "quantile":
+            widgets[p] = w.FloatSlider(
+                value=0.5, min=0.0, max=1.0, step=0.05,
+                description="quantile:",
+                readout_format=".2f",
+                layout=w.Layout(width="340px"),
+                style={"description_width": "120px"},
+            )
+        elif p in ("value_set", "regex_list", "type_list"):
+            label = {"value_set": "value_set:", "regex_list": "regex_list:", "type_list": "type_list:"}[p]
             widgets[p] = w.Textarea(
-                description="value_set:",
+                description=label,
                 placeholder="A, B, C  (comma-separated)",
-                layout=w.Layout(width="340px", height="60px"),
-                style={"description_width": "90px"},
+                layout=w.Layout(width="380px", height="60px"),
+                style={"description_width": "120px"},
+            )
+        elif p == "columns":
+            widgets[p] = w.Text(
+                description="columns:",
+                placeholder="col_a, col_b, col_c  (comma-separated)",
+                layout=w.Layout(width="380px"),
+                style={"description_width": "120px"},
+            )
+        elif p in ("column_set", "column_list"):
+            widgets[p] = w.Textarea(
+                description=f"{p}:",
+                placeholder="col_a, col_b, col_c  (comma-separated)",
+                layout=w.Layout(width="380px", height="60px"),
+                style={"description_width": "120px"},
             )
         elif p == "regex":
             widgets[p] = w.Text(
                 description="regex:",
                 placeholder=r"^\d{4}-\d{2}-\d{2}$",
-                layout=w.Layout(width="340px"),
-                style={"description_width": "90px"},
+                layout=w.Layout(width="380px"),
+                style={"description_width": "120px"},
+            )
+        elif p == "like_pattern":
+            widgets[p] = w.Text(
+                description="like_pattern:",
+                placeholder="ABC%  or  %_suffix",
+                layout=w.Layout(width="280px"),
+                style={"description_width": "120px"},
             )
         elif p == "strftime_format":
             widgets[p] = w.Text(
                 value="%Y-%m-%d",
                 description="format:",
                 layout=w.Layout(width="240px"),
-                style={"description_width": "90px"},
+                style={"description_width": "120px"},
             )
         elif p == "type_":
             widgets[p] = w.Dropdown(
                 options=["string", "int", "long", "double", "float",
                          "boolean", "date", "timestamp", "decimal"],
                 description="type_:",
-                style={"description_width": "90px"},
+                style={"description_width": "120px"},
             )
         elif p == "column_b":
             widgets[p] = w.Dropdown(
                 options=[""] + list(all_cols),
                 description="column_b:",
-                style={"description_width": "90px"},
+                style={"description_width": "120px"},
+            )
+        elif p == "reference_table":
+            widgets[p] = w.Text(
+                description="ref. table:",
+                placeholder="catalog.schema.dim_table",
+                layout=w.Layout(width="380px"),
+                style={"description_width": "120px"},
+            )
+        elif p == "reference_column":
+            widgets[p] = w.Text(
+                description="ref. column:",
+                placeholder="id",
+                layout=w.Layout(width="280px"),
+                style={"description_width": "120px"},
+            )
+        elif p == "check_orphans":
+            widgets[p] = w.Checkbox(
+                value=False,
+                description="check orphans (bidirectional)",
+                style={"description_width": "120px"},
+            )
+        elif p == "valid_pairs":
+            widgets[p] = w.Textarea(
+                description="valid_pairs:",
+                placeholder='[["A","X"],["B","Y"]]  (JSON array of pairs)',
+                layout=w.Layout(width="380px", height="80px"),
+                style={"description_width": "120px"},
+            )
+        elif p == "expected_schema":
+            widgets[p] = w.Textarea(
+                description="expected_schema:",
+                placeholder='{"id": "int", "name": "string"}  (JSON)',
+                layout=w.Layout(width="380px", height="80px"),
+                style={"description_width": "120px"},
+            )
+        elif p == "sql_filter":
+            widgets[p] = w.Textarea(
+                description="sql_filter:",
+                placeholder="age < 0 OR salary IS NULL  (SQL WHERE clause — matching rows FAIL)",
+                layout=w.Layout(width="500px", height="70px"),
+                style={"description_width": "120px"},
             )
     return widgets
 
 
 def _read_params(param_widgets: dict) -> dict:
+    import json as _json
     out = {}
     for k, widget in param_widgets.items():
         val = widget.value
-        if k == "value_set":
+        if k in ("value_set", "regex_list", "type_list"):
             out[k] = [v.strip() for v in str(val).split(",") if v.strip()]
+        elif k in ("columns", "column_set", "column_list"):
+            out[k] = [v.strip() for v in str(val).split(",") if v.strip()]
+        elif k in ("valid_pairs", "expected_schema"):
+            try:
+                out[k] = _json.loads(val) if val.strip() else ([] if k == "valid_pairs" else {})
+            except Exception:
+                out[k] = [] if k == "valid_pairs" else {}
         else:
             out[k] = val
     return out
@@ -198,6 +290,9 @@ def configure() -> dict:
         if entry.get("table_level"):
             col_dd.options = ["_TABLE_LEVEL_"]
             col_dd.value = "_TABLE_LEVEL_"
+        elif entry.get("compound"):
+            col_dd.options = ["_COMPOUND_"]
+            col_dd.value = "_COMPOUND_"
         elif all_cols:
             col_dd.options = all_cols
 
