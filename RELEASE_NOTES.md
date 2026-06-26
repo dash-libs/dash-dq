@@ -1,10 +1,10 @@
-## DashDQ v0.1.11
+## DashDQ v0.1.12
 
 **Released:** 2026-06-26
-**Previous:** v0.1.10
+**Previous:** v0.1.11
 
 ### Notes
-Config JSON persistence and file-path support in run_checks
+Structured catalog/schema/table directory layout for config files and volume outputs
 
 ### What's included
 - All tests passing across Python 3.9, 3.10, 3.11, 3.12
@@ -13,12 +13,12 @@ Config JSON persistence and file-path support in run_checks
 
 ### Install
 ```bash
-pip install dash-dq==0.1.11
+pip install dash-dq==0.1.12
 ```
 
 ### Quick Start (Databricks notebook)
 ```python
-%pip install dash-dq==0.1.11
+%pip install dash-dq==0.1.12
 import dashdq
 dashdq.launch()
 ```
