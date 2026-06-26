@@ -239,6 +239,100 @@ for _k, _v in CHECKS_REGISTRY.items():
     _GROUPED.setdefault(_v["dimension"], []).append(_k)
 
 
+_SHORT: dict[str, str] = {
+    # column pair
+    "expect_column_pair_values_a_to_be_greater_than_b":        "pair: A > B",
+    "expect_column_pair_values_to_be_equal":                   "pair: equal",
+    "expect_column_pair_values_to_be_in_set":                  "pair: in set",
+    # column stats
+    "expect_column_max_to_be_between":                         "max between",
+    "expect_column_mean_to_be_between":                        "mean between",
+    "expect_column_median_to_be_between":                      "median between",
+    "expect_column_min_to_be_between":                         "min between",
+    "expect_column_stdev_to_be_between":                       "stdev between",
+    "expect_column_sum_to_be_between":                         "sum between",
+    "expect_column_quantile_value_to_be_between":              "quantile between",
+    "expect_column_null_count_to_be_between":                  "null count between",
+    "expect_column_null_proportion_to_be_between":             "null % between",
+    "expect_column_most_common_value_to_be_in_set":            "mode in set",
+    "expect_column_proportion_of_unique_values_to_be_between": "unique % between",
+    "expect_column_unique_value_count_to_be_between":          "unique count between",
+    "expect_column_value_lengths_to_be_between":               "length between",
+    "expect_column_value_lengths_to_equal":                    "length =",
+    "expect_column_data_to_be_fresh":                          "fresh",
+    "expect_column_to_exist":                                  "col exists",
+    # distinct
+    "expect_column_distinct_values_to_be_in_set":              "distinct in set",
+    "expect_column_distinct_values_to_contain_set":            "distinct contains",
+    "expect_column_distinct_values_to_equal_set":              "distinct = set",
+    # not-null / null
+    "expect_column_values_to_not_be_null":                     "not null",
+    "expect_column_values_to_not_be_null_or_empty":            "not null or empty",
+    "expect_column_values_to_not_be_empty_string":             "not empty",
+    "expect_column_values_to_be_null":                         "is null",
+    # set membership
+    "expect_column_values_to_be_in_set":                       "in set",
+    "expect_column_values_to_not_be_in_set":                   "not in set",
+    "expect_column_values_to_exist_in_reference_table":        "in ref table",
+    # equality
+    "expect_column_values_to_equal":                           "equal",
+    "expect_column_values_to_not_equal":                       "not equal",
+    # range
+    "expect_column_values_to_be_between":                      "between",
+    "expect_column_values_to_not_be_between":                  "not between",
+    "expect_column_values_to_be_not_greater_than":             "≤ max",
+    "expect_column_values_to_be_not_less_than":                "≥ min",
+    # uniqueness
+    "expect_column_values_to_be_unique":                       "unique",
+    # type
+    "expect_column_values_to_be_of_type":                      "of type",
+    "expect_column_values_to_be_in_type_list":                 "in type list",
+    # numeric sign
+    "expect_column_values_to_be_positive":                     "positive",
+    "expect_column_values_to_be_negative":                     "negative",
+    "expect_column_values_to_be_non_negative":                 "≥ 0",
+    # ordering
+    "expect_column_values_to_be_increasing":                   "increasing",
+    "expect_column_values_to_be_decreasing":                   "decreasing",
+    # date / time
+    "expect_column_values_to_be_dateutil_parseable":           "parseable date",
+    "expect_column_values_to_be_not_older_than_n_days":        "not older than N days",
+    "expect_column_values_to_not_be_in_future":                "not in future",
+    "expect_column_values_to_not_be_in_near_future":           "not near future",
+    # format / pattern
+    "expect_column_values_to_match_regex":                     "match regex",
+    "expect_column_values_to_not_match_regex":                 "not match regex",
+    "expect_column_values_to_match_regex_list":                "match regex list",
+    "expect_column_values_to_match_like_pattern":              "like pattern",
+    "expect_column_values_to_not_match_like_pattern":          "not like pattern",
+    "expect_column_values_to_match_strftime_format":           "strftime format",
+    "expect_column_values_to_pass_custom_sql_filter":          "sql filter",
+    "expect_column_values_to_be_json_parseable":               "parseable JSON",
+    # internet
+    "expect_column_values_to_be_valid_email":                  "valid email",
+    "expect_column_values_to_be_valid_ipv4":                   "valid IPv4",
+    "expect_column_values_to_be_valid_url":                    "valid URL",
+    "expect_column_values_to_be_valid_uuid":                   "valid UUID",
+    # compound / table-level
+    "expect_compound_columns_to_be_unique":                    "compound unique",
+    "expect_multicolumn_sum_to_equal":                         "multi-col sum =",
+    "expect_primary_key_to_be_valid":                          "pk valid",
+    "expect_referential_integrity":                            "fk integrity",
+    "expect_table_column_count_to_be_between":                 "col count between",
+    "expect_table_column_count_to_equal":                      "col count =",
+    "expect_table_columns_to_match_ordered_list":              "cols ordered",
+    "expect_table_columns_to_match_set":                       "cols match set",
+    "expect_table_row_count_to_be_between":                    "rows between",
+    "expect_table_row_count_to_equal":                         "rows =",
+    "expect_table_row_count_to_equal_other_table":             "rows = other table",
+    "expect_table_schema_to_match":                            "schema matches",
+}
+
+
+def _short_name(name: str) -> str:
+    return _SHORT.get(name, name.replace("_", " "))
+
+
 def _col_check_options() -> list[tuple[str, str]]:
     """Column-level checks only (not table_level, not compound)."""
     opts = []
@@ -246,7 +340,7 @@ def _col_check_options() -> list[tuple[str, str]]:
         for name in _GROUPED.get(dim, []):
             entry = CHECKS_REGISTRY[name]
             if not entry.get("table_level") and not entry.get("compound"):
-                opts.append((f"[{dim[:4]}] {name}", name))
+                opts.append((f"[{dim[:4]}] {_short_name(name)}", name))
     return opts
 
 
@@ -257,7 +351,7 @@ def _extra_check_options() -> list[tuple[str, str]]:
         for name in _GROUPED.get(dim, []):
             entry = CHECKS_REGISTRY[name]
             if entry.get("table_level") or entry.get("compound"):
-                opts.append((f"[{dim[:4]}] {name}", name))
+                opts.append((f"[{dim[:4]}] {_short_name(name)}", name))
     return opts
 
 
@@ -290,6 +384,7 @@ class DashDQWizard:
         # Check state
         self._col_checks: dict[str, list[dict]]  = {}   # col_name → [check_dict, …]
         self._extra_checks: list[dict]            = []   # table-level / compound
+        self._col_step_mode: str                  = "column"  # "column" | "check"
 
         # Output state — pre-create as attributes so _make_output_step always has refs
         self._check_o_df:       w.Checkbox | None = None
@@ -418,13 +513,41 @@ class DashDQWizard:
     def _on_next(self, _=None):
         if self._step == len(self.STEPS) - 1:
             self._do_save()
-        else:
-            if self._step == 0 and not self._full:
+            return
+        if self._step == 0:
+            # Validate a table is selected
+            table = getattr(self, "_table", "")
+            if not table or str(table).startswith("—"):
                 self._nav_msg.children = (
-                    _info("⚠️ Load a table first — select catalog, schema, table then click Load.", "warn"),
+                    _info("⚠️ Select a catalog, schema, and table first.", "warn"),
                 )
                 return
-            self._go_to(self._step + 1)
+            new_full = f"{self._catalog}.{self._schema}.{self._table}"
+            if new_full != self._full or not self._columns:
+                # Load columns on the way to step 2
+                self._nav_msg.children = (
+                    _info(f"⏳ Loading columns from <code>{new_full}</code>…", "info"),
+                )
+                self._full = new_full
+                cols, _count = _table_info(self.spark, self._full) if self.spark else ([], -1)
+                self._columns = cols
+                if not cols and self.spark:
+                    self._nav_msg.children = (
+                        _info(f"❌ Could not load <code>{new_full}</code> — check permissions.", "error"),
+                    )
+                    return
+                cfg_dir = self.env.get("config_dir", "")
+                existing = _load_existing_config(cfg_dir, self._full)
+                if existing.get("checks"):
+                    self._col_checks = {}
+                    self._extra_checks = []
+                    for chk in existing["checks"]:
+                        col = chk.get("column", "")
+                        if col in ("_TABLE_LEVEL_", "_COMPOUND_"):
+                            self._extra_checks.append(chk)
+                        else:
+                            self._col_checks.setdefault(col, []).append(chk)
+        self._go_to(self._step + 1)
 
     # ── Step 1: Source ────────────────────────────────────────────────────────
 
@@ -435,31 +558,26 @@ class DashDQWizard:
                                   layout=w.Layout(width="100%"))
         self._tbl_dd = w.Dropdown(options=["— select table —"], disabled=True,
                                   layout=w.Layout(width="100%"))
-
-        self._load_btn_box, self._load_btn = _styled_btn("📥  Load Table & Columns", "primary")
-        self._load_btn.disabled = True
-        self._load_btn.layout   = w.Layout(height="36px")
-        self._source_info       = w.VBox([])
+        self._source_info = w.VBox([])
 
         self._cat_dd.observe(self._on_catalog_change, names="value")
         self._sch_dd.observe(self._on_schema_change,  names="value")
         self._tbl_dd.observe(self._on_table_change,   names="value")
-        self._load_btn.on_click(self._do_load_table)
 
-        # Pre-populate info if table already loaded
         if self._full and self._columns:
-            self._source_info.children = self._source_loaded_widgets()
+            self._source_info.children = (
+                _info(f"✅ <b>{self._full}</b> — {len(self._columns)} columns loaded. "
+                      "Click <b>Next →</b> to review checks.", "ok"),
+            )
 
         self._do_load_catalogs()
 
         return w.VBox([
             _sec("📊  Step 1 of 5 — Select Source Table"),
-            _info("Select catalog → schema → table from the dropdowns, then click "
-                  "<b>Load Table & Columns</b>.", "info"),
+            _info("Select catalog → schema → table, then click <b>Next →</b> to load columns.", "info"),
             w.VBox([_label("Catalog"), self._cat_dd], layout=w.Layout(margin="0 0 10px 0")),
             w.VBox([_label("Schema"),  self._sch_dd], layout=w.Layout(margin="0 0 10px 0")),
             w.VBox([_label("Table"),   self._tbl_dd], layout=w.Layout(margin="0 0 12px 0")),
-            w.HBox([self._load_btn_box]),
             self._source_info,
         ], layout=w.Layout(padding="18px"))
 
@@ -482,7 +600,7 @@ class DashDQWizard:
         self._sch_dd.disabled = not bool(schemas)
         self._tbl_dd.options  = ["— select table —"]
         self._tbl_dd.disabled = True
-        self._load_btn.disabled = True
+        self._source_info.children = ()
         default = self.env.get("default_schema", "")
         if default and default in schemas:
             self._sch_dd.value = default
@@ -495,41 +613,18 @@ class DashDQWizard:
         tables = _list_tables(self.spark, self._catalog, val) if self.spark else []
         self._tbl_dd.options  = ["— select table —"] + tables
         self._tbl_dd.disabled = not bool(tables)
-        self._load_btn.disabled = True
+        self._source_info.children = ()
 
     def _on_table_change(self, change):
         val = change["new"]
         if not val.startswith("—"):
             self._table = val
-            self._load_btn.disabled = False
-
-    def _do_load_table(self, _=None):
-        self._full = f"{self._catalog}.{self._schema}.{self._table}"
-        self._source_info.children = (_info(f"Loading <code>{self._full}</code>…", "info"),)
-
-        cols, count = _table_info(self.spark, self._full) if self.spark else ([], -1)
-        self._columns = cols
-
-        if not cols:
             self._source_info.children = (
-                _info("❌ Could not load table — check permissions.", "error"),
+                _info(f"📊 <b>{self._catalog}.{self._schema}.{val}</b> "
+                      "— click <b>Next →</b> to load columns", "info"),
             )
-            return
-
-        # Restore existing checks if available
-        cfg_dir  = self.env.get("config_dir", "")
-        existing = _load_existing_config(cfg_dir, self._full)
-        if existing.get("checks"):
-            self._col_checks   = {}
-            self._extra_checks = []
-            for chk in existing["checks"]:
-                col = chk.get("column", "")
-                if col in ("_TABLE_LEVEL_", "_COMPOUND_"):
-                    self._extra_checks.append(chk)
-                else:
-                    self._col_checks.setdefault(col, []).append(chk)
-
-        self._source_info.children = self._source_loaded_widgets(count, existing)
+        else:
+            self._source_info.children = ()
 
     def _source_loaded_widgets(self, count: int = -1, existing: dict | None = None) -> tuple:
         rc = f"{count:,}" if count >= 0 else "—"
@@ -562,9 +657,62 @@ class DashDQWizard:
         if not self._columns:
             return w.VBox([
                 _sec("✅  Step 2 of 5 — Column Checks"),
-                _info("⚠️ No table loaded. Go back to step 1 and load a table.", "warn"),
+                _info("⚠️ No table loaded. Go back to step 1 and select a table.", "warn"),
             ], layout=w.Layout(padding="18px"))
 
+        body = w.VBox([])
+
+        # ── Mode toggle ────────────────────────────────────────────────────────
+        col_btn_box, col_btn = _styled_btn("📋 By Column", "nav")
+        chk_btn_box, chk_btn = _styled_btn("🔍 By Check", "secondary")
+        col_btn.layout = w.Layout(height="30px")
+        chk_btn.layout = w.Layout(height="30px")
+
+        def _render_body():
+            n_cfg = sum(1 for c in self._col_checks if self._col_checks[c])
+            n_total = len(self._columns)
+            summary = (f"<span style='font-size:12px;color:#666'>{n_total} columns · "
+                       f"<b style='color:#1B3A4B'>{n_cfg}</b> with checks</span>")
+            if self._col_step_mode == "column":
+                col_btn.style.button_color = "#FF3621"
+                col_btn.style.text_color   = "#fff"
+                chk_btn.style.button_color = None
+                chk_btn.style.text_color   = None
+                body.children = (self._build_col_view(summary),)
+            else:
+                chk_btn.style.button_color = "#FF3621"
+                chk_btn.style.text_color   = "#fff"
+                col_btn.style.button_color = None
+                col_btn.style.text_color   = None
+                body.children = (self._build_chk_view(summary),)
+
+        def _to_col(_):
+            self._col_step_mode = "column"
+            _render_body()
+
+        def _to_chk(_):
+            self._col_step_mode = "check"
+            _render_body()
+
+        col_btn.on_click(_to_col)
+        chk_btn.on_click(_to_chk)
+
+        toggle = w.HBox(
+            [col_btn_box, chk_btn_box],
+            layout=w.Layout(margin="0 0 10px 0"),
+        )
+        toggle.add_class("dq-gap-8")
+
+        _render_body()
+
+        return w.VBox([
+            _sec("✅  Step 2 of 5 — Column Checks"),
+            toggle,
+            body,
+        ], layout=w.Layout(padding="18px"))
+
+    def _build_col_view(self, summary_html: str) -> w.VBox:
+        """Per-column table rows with inline +Add form (original layout)."""
         header_row = _h(
             "<div style='display:grid;grid-template-columns:220px 110px 1fr 120px;"
             "padding:8px 14px;font-size:11px;font-weight:700;color:#5C6673;"
@@ -581,22 +729,199 @@ class DashDQWizard:
                 row.add_class("dq-col-row-alt")
             rows.append(row)
 
-        n_configured = sum(1 for c in self._col_checks if self._col_checks[c])
-        summary_html = (
-            f"<span style='font-size:12px;color:#666'>"
-            f"{len(self._columns)} columns · "
-            f"<b style='color:#1B3A4B'>{n_configured}</b> with checks</span>"
+        return w.VBox([
+            _info(
+                "Click <b>＋ Add</b> on any column row to attach one or more checks. "
+                f"<span style='float:right'>{summary_html}</span>", "info"
+            ),
+            w.VBox(rows, layout=w.Layout(margin="4px 0 0 0")),
+        ])
+
+    def _build_chk_view(self, summary_html: str) -> w.VBox:
+        """Check-first view: pick a check + multi-select columns."""
+        list_box = w.VBox([])
+
+        def _refresh_list():
+            rows = []
+            for col_name, checks in self._col_checks.items():
+                for idx, chk in enumerate(checks):
+                    sn = _short_name(chk["check_name"])
+                    dim = CHECKS_REGISTRY.get(chk["check_name"], {}).get("dimension", "")
+                    rm_box2, rm_btn2 = _styled_btn("✕", "danger")
+                    rm_btn2.layout = w.Layout(height="22px", width="26px")
+
+                    def _make_rm(c, i):
+                        def _rm(_):
+                            self._col_checks[c].pop(i)
+                            _refresh_list()
+                        return _rm
+
+                    rm_btn2.on_click(_make_rm(col_name, idx))
+                    rows.append(w.HBox([
+                        _h(f"<span class='dq-badge dq-{dim}' style='font-size:10px;"
+                           f"min-width:140px;display:inline-block'>{sn}</span>"),
+                        _h(f"<span style='font-family:monospace;font-size:12px;"
+                           f"color:#1B3A4B;min-width:160px;padding:0 8px'>{col_name}</span>"),
+                        _h(f"<span style='font-size:11px;color:#888;min-width:60px'>"
+                           f"{chk['threshold_pct']}%</span>"),
+                        rm_box2,
+                    ], layout=w.Layout(align_items="center", padding="5px 8px",
+                                       margin="0 0 2px 0")))
+            if rows:
+                hdr = _h(
+                    "<div style='display:flex;gap:0;padding:4px 8px;font-size:11px;"
+                    "font-weight:700;color:#5C6673;text-transform:uppercase;letter-spacing:.4px'>"
+                    "<span style='min-width:156px'>Check</span>"
+                    "<span style='min-width:168px'>Column</span>"
+                    "<span style='min-width:68px'>Threshold</span></div>"
+                )
+                hdr_box = w.VBox([hdr])
+                hdr_box.add_class("dq-col-header")
+                list_box.children = (hdr_box, w.VBox(rows))
+            else:
+                list_box.children = (
+                    _info("No column checks added yet. Use the form above to add checks.", "info"),
+                )
+
+        # ── Add form ──────────────────────────────────────────────────────────
+        col_opts  = _col_check_options()
+        check_dd  = w.Dropdown(options=col_opts, layout=w.Layout(width="260px"))
+        threshold = w.BoundedFloatText(value=100.0, min=0.0, max=100.0, step=0.5,
+                                       layout=w.Layout(width="85px"))
+
+        col_names = [n for n, _ in self._columns]
+        col_multi = w.SelectMultiple(
+            options=[(f"{n}  ({dt})", n) for n, dt in self._columns],
+            value=[],
+            rows=min(10, len(col_names)),
+            layout=w.Layout(width="320px", min_height="140px"),
         )
+        select_all_box, select_all_btn = _styled_btn("Select All", "outline")
+        clear_box,      clear_btn      = _styled_btn("Clear", "outline")
+        select_all_btn.layout = w.Layout(height="26px")
+        clear_btn.layout      = w.Layout(height="26px")
+
+        def _sel_all(_): col_multi.value = tuple(col_names)
+        def _clear(_):   col_multi.value = ()
+        select_all_btn.on_click(_sel_all)
+        clear_btn.on_click(_clear)
+
+        simple_out  = w.VBox([])
+        complex_out = w.VBox([])
+        simple_store: dict = {}
+        complex_store: dict = {}
+
+        def _on_dd(change):
+            name  = change["new"]
+            entry = CHECKS_REGISTRY.get(name, {})
+            raw   = entry.get("params", [])
+            all_p = raw if isinstance(raw, dict) else {k: None for k in raw}
+            simple_store.clear()
+            complex_store.clear()
+            simple = {k: v for k, v in all_p.items() if k not in _COMPLEX_KEYS}
+            pw = []
+            for pname, default in simple.items():
+                wgt = self._make_simple_widget(pname, default)
+                if wgt:
+                    simple_store[pname] = wgt
+                    pw.append(w.HBox([
+                        _h(f"<div style='font-size:11px;color:#5C6673;font-weight:600;"
+                           f"min-width:100px'>{pname.replace('_',' ').title()}</div>"),
+                        wgt,
+                    ], layout=w.Layout(align_items="center", margin="0 0 4px 0")))
+            simple_out.children = tuple(pw)
+            cplx = {k: v for k, v in all_p.items() if k in _COMPLEX_KEYS}
+            if cplx:
+                complex_out.children = (self._make_complex_wizard(name, cplx, col_names, complex_store),)
+            else:
+                complex_out.children = ()
+
+        check_dd.observe(_on_dd, names="value")
+        _on_dd({"new": check_dd.value})
+
+        add_box2, add_btn2 = _styled_btn("✓ Add to selected columns", "primary")
+        add_btn2.layout = w.Layout(height="32px")
+        status2 = w.VBox([])
+
+        def _do_add_chk(_):
+            selected = list(col_multi.value)
+            if not selected:
+                status2.children = (_info("⚠️ Select at least one column first.", "warn"),)
+                return
+            params: dict = {}
+            for k, wgt in simple_store.items():
+                val = wgt.value
+                if k in ("value_set", "regex_list", "type_list"):
+                    val = [x.strip() for x in str(val).split(",") if x.strip()]
+                elif k in ("min_value", "max_value", "sum_value", "quantile"):
+                    try:
+                        val = float(val)
+                    except Exception:
+                        val = None
+                elif k in ("n_days", "n_minutes"):
+                    try:
+                        val = int(val)
+                    except Exception:
+                        val = 1
+                params[k] = val
+            for k, wgt in complex_store.items():
+                val = wgt.value
+                if k in ("valid_pairs", "expected_schema"):
+                    try:
+                        val = json.loads(val) if val else ([] if k == "valid_pairs" else {})
+                    except Exception:
+                        val = [] if k == "valid_pairs" else {}
+                elif k == "columns":
+                    val = list(val)
+                elif k == "check_orphans":
+                    val = bool(val)
+                params[k] = val
+            chk_name = check_dd.value
+            thr = round(float(threshold.value), 1)
+            for col in selected:
+                self._col_checks.setdefault(col, []).append({
+                    "check_name":    chk_name,
+                    "column":        col,
+                    "threshold_pct": thr,
+                    "params":        params,
+                })
+            sn = _short_name(chk_name)
+            status2.children = (
+                _info(f"✅ Added <b>{sn}</b> to {len(selected)} column(s).", "ok"),
+            )
+            col_multi.value = ()
+            _refresh_list()
+
+        add_btn2.on_click(_do_add_chk)
+
+        form = w.VBox([
+            w.HBox([
+                w.VBox([_label("Check"), check_dd]),
+                w.HTML("&nbsp;&nbsp;&nbsp;"),
+                w.VBox([_label("Pass Threshold %"), threshold]),
+            ], layout=w.Layout(align_items="flex-end", margin="0 0 8px 0")),
+            simple_out, complex_out,
+            w.VBox([
+                _label("Columns (select one or more)"),
+                col_multi,
+                w.HBox([select_all_box, clear_box],
+                       layout=w.Layout(margin="4px 0 0 0")),
+            ], layout=w.Layout(margin="6px 0 8px 0")),
+            w.HBox([add_box2]),
+            status2,
+        ], layout=w.Layout(padding="12px 14px 10px 14px", margin="0 0 10px 0"))
+        form.add_class("dq-form-box")
+
+        _refresh_list()
 
         return w.VBox([
-            _sec("✅  Step 2 of 5 — Column Checks"),
-            w.HBox([
-                _info("Click <b>＋ Add</b> on any column to configure one or more checks. "
-                      "Each check has a configurable pass threshold (% of rows that must pass).", "info"),
-                _h(f"<div style='white-space:nowrap;padding:8px 0 8px 12px'>{summary_html}</div>"),
-            ], layout=w.Layout(align_items="flex-start")),
-            w.VBox(rows, layout=w.Layout(margin="4px 0 0 0")),
-        ], layout=w.Layout(padding="18px"))
+            _info(
+                "Select a check + one or more columns, then click <b>✓ Add</b>. "
+                f"<span style='float:right'>{summary_html}</span>", "info"
+            ),
+            form,
+            list_box,
+        ])
 
     def _build_col_row(self, col_name: str, dtype: str) -> w.VBox:
         """One column row: header with tags + collapsible add-check form."""
@@ -753,7 +1078,7 @@ class DashDQWizard:
             rm_btn.on_click(_make_rm(i, col, box))
             tags.append(w.HBox([
                 _h(f"<span class='dq-badge dq-{dim}' style='font-size:10px'>"
-                   f"{chk['check_name']}</span>"),
+                   f"{_short_name(chk['check_name'])}</span>"),
                 rm_box,
             ], layout=w.Layout(align_items="center", margin="0 4px 2px 0")))
 
