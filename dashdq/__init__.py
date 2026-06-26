@@ -16,7 +16,7 @@ from dashdq.suite import run_checks, DQReport
 from dashdq.ui import configure, launch
 from dashdq.checks import CHECKS_REGISTRY, CheckResult
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "Darshan Shah"
 __email__ = "darshan.innovation@gmail.com"
 __license__ = "Apache-2.0"
