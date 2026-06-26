@@ -1083,10 +1083,29 @@ class DashDQWizard:
         })
 
         n = len(self._checks)
+
+        # Persist to disk if a config directory is configured
+        config_dir = self.env.get("config_dir", "").strip()
+        saved_path = ""
+        if config_dir:
+            try:
+                os.makedirs(config_dir, exist_ok=True)
+                safe_name = (self._full or "table").replace(".", "__")
+                saved_path = os.path.join(config_dir, f"{safe_name}.json")
+                with open(saved_path, "w") as f:
+                    json.dump(self._config, f, indent=2)
+            except Exception as exc:
+                self._save_status.children = (_info(
+                    f"⚠️ Config built but could not save to disk: {exc}", "warn"
+                ),)
+                return
+
+        file_hint = (f" · saved to <code>{saved_path}</code>" if saved_path
+                     else " · set a Config Directory in ⚙️ Settings to persist to disk")
         self._save_status.children = (_info(
-            f"✅ Config saved — <b>{n} check{'s' if n!=1 else ''}</b> on "
-            f"<code>{self._full or '(no table)'}</code>. "
-            "Now call <code>dashdq.run_checks(config)</code>.",
+            f"✅ <b>{n} check{'s' if n!=1 else ''}</b> on "
+            f"<code>{self._full or '(no table)'}</code>{file_hint}. "
+            "Call <code>dashdq.run_checks(config)</code> or pass the file path.",
             "ok",
         ),)
 

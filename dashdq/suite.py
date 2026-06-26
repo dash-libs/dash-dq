@@ -167,9 +167,13 @@ class DQReport:
         return results.get("dataframe") or (sdf if sdf is not None else None)
 
 
-def run_checks(config: dict, spark=None) -> DQReport:
+def run_checks(config, spark=None) -> DQReport:
     """
     Execute all checks defined in config and return a DQReport.
+
+    ``config`` can be:
+    - a **dict** returned by ``dashdq.configure()``
+    - a **file path** (str) to a JSON config saved by the wizard
 
     config shape::
 
@@ -183,9 +187,17 @@ def run_checks(config: dict, spark=None) -> DQReport:
                  "params": {}},
                 ...
             ],
-            "output":   {"type": "delta", "delta_table": "..."}       # optional
+            "output":   {"types": ["delta"], "delta_table": "..."}    # optional
         }
     """
+    import os
+    if isinstance(config, (str, os.PathLike)):
+        path = str(config)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"DashDQ config file not found: {path}")
+        with open(path) as f:
+            config = json.load(f)
+
     if not config:
         raise ValueError("Config is empty — run dashdq.configure() first and click 'Save Config'.")
 
@@ -268,7 +280,7 @@ def run_checks(config: dict, spark=None) -> DQReport:
     return report
 
 
-def table_quality_ok(config: dict, spark=None) -> bool:
+def table_quality_ok(config, spark=None) -> bool:
     """Run all configured checks and return True if every check passes.
 
     Useful as a gate before consuming a table::

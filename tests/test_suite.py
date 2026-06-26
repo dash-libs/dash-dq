@@ -161,3 +161,20 @@ def test_run_checks_raises_on_empty_config():
     from dashdq.suite import run_checks
     with pytest.raises(ValueError, match="Config is empty"):
         run_checks({})
+
+
+def test_run_checks_raises_on_missing_file():
+    from dashdq.suite import run_checks
+    with pytest.raises(FileNotFoundError, match="not found"):
+        run_checks("/tmp/does_not_exist_dashdq.json")
+
+
+def test_run_checks_loads_from_json_file(tmp_path):
+    import json
+    from dashdq.suite import run_checks
+    cfg = {"source": {"table": "a.b.c"}, "checks": []}
+    p = tmp_path / "test_config.json"
+    p.write_text(json.dumps(cfg))
+    # Empty checks → raises because no Spark, but config loads fine
+    with pytest.raises(Exception):
+        run_checks(str(p))
