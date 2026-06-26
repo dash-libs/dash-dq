@@ -24,6 +24,9 @@
             <h2>API Documentation</h2>
                 <ul class="memberlist">
             <li>
+                    <a class="function" href="#env_setup">env_setup</a>
+            </li>
+            <li>
                     <a class="function" href="#configure">configure</a>
             </li>
             <li>
@@ -207,32 +210,61 @@ report = <a href="#run_checks">dashdq.run_checks</a>(config)
 </span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.suite</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_checks</span><span class="p">,</span> <span class="n">table_quality_ok</span><span class="p">,</span> <span class="n">DQReport</span>
 </span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.checks</span><span class="w"> </span><span class="kn">import</span> <span class="n">CHECKS_REGISTRY</span><span class="p">,</span> <span class="n">CheckResult</span>
 </span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>
-</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a><span class="n">__version__</span> <span class="o">=</span> <span class="s2">&quot;0.1.14&quot;</span>
+</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a><span class="n">__version__</span> <span class="o">=</span> <span class="s2">&quot;0.1.15&quot;</span>
 </span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a><span class="n">__author__</span> <span class="o">=</span> <span class="s2">&quot;Darshan Shah&quot;</span>
 </span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a><span class="n">__email__</span> <span class="o">=</span> <span class="s2">&quot;darshan.innovation@gmail.com&quot;</span>
 </span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a><span class="n">__license__</span> <span class="o">=</span> <span class="s2">&quot;Apache-2.0&quot;</span>
 </span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a><span class="n">__url__</span> <span class="o">=</span> <span class="s2">&quot;https://github.com/dash-libs/dash-dq&quot;</span>
 </span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a>
 </span><span id="L-24"><a href="#L-24"><span class="linenos">24</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-</span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a>    <span class="s2">&quot;configure&quot;</span><span class="p">,</span> <span class="s2">&quot;run_checks&quot;</span><span class="p">,</span> <span class="s2">&quot;table_quality_ok&quot;</span><span class="p">,</span> <span class="s2">&quot;launch&quot;</span><span class="p">,</span>
+</span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a>    <span class="s2">&quot;env_setup&quot;</span><span class="p">,</span> <span class="s2">&quot;configure&quot;</span><span class="p">,</span> <span class="s2">&quot;run_checks&quot;</span><span class="p">,</span> <span class="s2">&quot;table_quality_ok&quot;</span><span class="p">,</span> <span class="s2">&quot;launch&quot;</span><span class="p">,</span>
 </span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a>    <span class="s2">&quot;DQReport&quot;</span><span class="p">,</span> <span class="s2">&quot;CheckResult&quot;</span><span class="p">,</span> <span class="s2">&quot;CHECKS_REGISTRY&quot;</span><span class="p">,</span>
 </span><span id="L-27"><a href="#L-27"><span class="linenos">27</span></a><span class="p">]</span>
 </span><span id="L-28"><a href="#L-28"><span class="linenos">28</span></a>
 </span><span id="L-29"><a href="#L-29"><span class="linenos">29</span></a>
-</span><span id="L-30"><a href="#L-30"><span class="linenos">30</span></a><span class="k">def</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-</span><span id="L-31"><a href="#L-31"><span class="linenos">31</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open the DashDQ wizard. Returns a config dict filled on Save Configuration.&quot;&quot;&quot;</span>
-</span><span id="L-32"><a href="#L-32"><span class="linenos">32</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span> <span class="k">as</span> <span class="n">_configure</span>
-</span><span id="L-33"><a href="#L-33"><span class="linenos">33</span></a>    <span class="k">return</span> <span class="n">_configure</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="n">spark</span><span class="p">)</span>
+</span><span id="L-30"><a href="#L-30"><span class="linenos">30</span></a><span class="k">def</span><span class="w"> </span><span class="nf">env_setup</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-31"><a href="#L-31"><span class="linenos">31</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open the DashDQ environment setup panel (configure paths and defaults).&quot;&quot;&quot;</span>
+</span><span id="L-32"><a href="#L-32"><span class="linenos">32</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">env_setup</span> <span class="k">as</span> <span class="n">_env_setup</span>
+</span><span id="L-33"><a href="#L-33"><span class="linenos">33</span></a>    <span class="k">return</span> <span class="n">_env_setup</span><span class="p">()</span>
 </span><span id="L-34"><a href="#L-34"><span class="linenos">34</span></a>
 </span><span id="L-35"><a href="#L-35"><span class="linenos">35</span></a>
-</span><span id="L-36"><a href="#L-36"><span class="linenos">36</span></a><span class="k">def</span><span class="w"> </span><span class="nf">launch</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-37"><a href="#L-37"><span class="linenos">37</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;All-in-one: open wizard + Run Checks button.&quot;&quot;&quot;</span>
-</span><span id="L-38"><a href="#L-38"><span class="linenos">38</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">launch</span> <span class="k">as</span> <span class="n">_launch</span>
-</span><span id="L-39"><a href="#L-39"><span class="linenos">39</span></a>    <span class="k">return</span> <span class="n">_launch</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="n">spark</span><span class="p">)</span>
+</span><span id="L-36"><a href="#L-36"><span class="linenos">36</span></a><span class="k">def</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+</span><span id="L-37"><a href="#L-37"><span class="linenos">37</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open the DashDQ wizard. Returns a config dict filled on Save Configuration.&quot;&quot;&quot;</span>
+</span><span id="L-38"><a href="#L-38"><span class="linenos">38</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span> <span class="k">as</span> <span class="n">_configure</span>
+</span><span id="L-39"><a href="#L-39"><span class="linenos">39</span></a>    <span class="k">return</span> <span class="n">_configure</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="n">spark</span><span class="p">)</span>
+</span><span id="L-40"><a href="#L-40"><span class="linenos">40</span></a>
+</span><span id="L-41"><a href="#L-41"><span class="linenos">41</span></a>
+</span><span id="L-42"><a href="#L-42"><span class="linenos">42</span></a><span class="k">def</span><span class="w"> </span><span class="nf">launch</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-43"><a href="#L-43"><span class="linenos">43</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;All-in-one: open wizard + Run Checks button.&quot;&quot;&quot;</span>
+</span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">launch</span> <span class="k">as</span> <span class="n">_launch</span>
+</span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a>    <span class="k">return</span> <span class="n">_launch</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="n">spark</span><span class="p">)</span>
 </span></pre></div>
 
 
             </section>
+                <section id="env_setup">
+                            <input id="env_setup-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">env_setup</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+
+                <label class="view-source-button" for="env_setup-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#env_setup"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="env_setup-31"><a href="#env_setup-31"><span class="linenos">31</span></a><span class="k">def</span><span class="w"> </span><span class="nf">env_setup</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="env_setup-32"><a href="#env_setup-32"><span class="linenos">32</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open the DashDQ environment setup panel (configure paths and defaults).&quot;&quot;&quot;</span>
+</span><span id="env_setup-33"><a href="#env_setup-33"><span class="linenos">33</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">env_setup</span> <span class="k">as</span> <span class="n">_env_setup</span>
+</span><span id="env_setup-34"><a href="#env_setup-34"><span class="linenos">34</span></a>    <span class="k">return</span> <span class="n">_env_setup</span><span class="p">()</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Open the DashDQ environment setup panel (configure paths and defaults).</p>
+</div>
+
+
+                </section>
                 <section id="configure">
                             <input id="configure-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr function">
@@ -244,10 +276,10 @@ report = <a href="#run_checks">dashdq.run_checks</a>(config)
 
     </div>
     <a class="headerlink" href="#configure"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="configure-31"><a href="#configure-31"><span class="linenos">31</span></a><span class="k">def</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-</span><span id="configure-32"><a href="#configure-32"><span class="linenos">32</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open the DashDQ wizard. Returns a config dict filled on Save Configuration.&quot;&quot;&quot;</span>
-</span><span id="configure-33"><a href="#configure-33"><span class="linenos">33</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span> <span class="k">as</span> <span class="n">_configure</span>
-</span><span id="configure-34"><a href="#configure-34"><span class="linenos">34</span></a>    <span class="k">return</span> <span class="n">_configure</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="n">spark</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="configure-37"><a href="#configure-37"><span class="linenos">37</span></a><span class="k">def</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+</span><span id="configure-38"><a href="#configure-38"><span class="linenos">38</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Open the DashDQ wizard. Returns a config dict filled on Save Configuration.&quot;&quot;&quot;</span>
+</span><span id="configure-39"><a href="#configure-39"><span class="linenos">39</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span> <span class="k">as</span> <span class="n">_configure</span>
+</span><span id="configure-40"><a href="#configure-40"><span class="linenos">40</span></a>    <span class="k">return</span> <span class="n">_configure</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="n">spark</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -467,10 +499,10 @@ else:
 
     </div>
     <a class="headerlink" href="#launch"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="launch-37"><a href="#launch-37"><span class="linenos">37</span></a><span class="k">def</span><span class="w"> </span><span class="nf">launch</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="launch-38"><a href="#launch-38"><span class="linenos">38</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;All-in-one: open wizard + Run Checks button.&quot;&quot;&quot;</span>
-</span><span id="launch-39"><a href="#launch-39"><span class="linenos">39</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">launch</span> <span class="k">as</span> <span class="n">_launch</span>
-</span><span id="launch-40"><a href="#launch-40"><span class="linenos">40</span></a>    <span class="k">return</span> <span class="n">_launch</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="n">spark</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="launch-43"><a href="#launch-43"><span class="linenos">43</span></a><span class="k">def</span><span class="w"> </span><span class="nf">launch</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="launch-44"><a href="#launch-44"><span class="linenos">44</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;All-in-one: open wizard + Run Checks button.&quot;&quot;&quot;</span>
+</span><span id="launch-45"><a href="#launch-45"><span class="linenos">45</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">dashdq.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">launch</span> <span class="k">as</span> <span class="n">_launch</span>
+</span><span id="launch-46"><a href="#launch-46"><span class="linenos">46</span></a>    <span class="k">return</span> <span class="n">_launch</span><span class="p">(</span><span class="n">spark</span><span class="o">=</span><span class="n">spark</span><span class="p">)</span>
 </span></pre></div>
 
 
