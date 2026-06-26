@@ -14,7 +14,7 @@ from datetime import datetime
 
 try:
     import ipywidgets as w
-    from IPython.display import display, HTML, clear_output
+    from IPython.display import display, HTML
 except ImportError as _e:
     raise ImportError(
         "ipywidgets is required for the DashDQ UI.\n"
@@ -365,7 +365,7 @@ class DashDQWizard:
         tabs.observe(_on_tab, names="selected_index")
 
         # Save Config button
-        self._save_status = w.Output()
+        self._save_status = w.VBox([])   # children-swap, no Output widget
         save_box, save_btn = _styled_btn("💾  Save Configuration", "success")
         save_btn.on_click(self._do_save)
         save_btn.layout = w.Layout(height="38px", min_width="200px")
@@ -381,8 +381,7 @@ class DashDQWizard:
         root.add_class("dq-root")
         display(root)
 
-        # Populate Output widgets AFTER the tree is displayed — Databricks
-        # requires Output widgets to be part of the live comm before writing to them.
+        # Populate dynamic panels after display — avoids serverless Output widget issues
         self._on_check_select({"new": self._check_dd.value})
 
     # ──────────────────── Tab 1: Environment ──────────────────────────────────
@@ -402,7 +401,7 @@ class DashDQWizard:
                                      placeholder="/Volumes/catalog/schema/volume",
                                      layout=w.Layout(width="100%"))
 
-        env_status = w.Output()
+        env_status = w.VBox([])
         save_box, save_btn = _styled_btn("💾  Save Environment Config", "secondary")
         reload_box, reload_btn = _styled_btn("↺  Reload from Disk", "outline")
 
@@ -414,9 +413,7 @@ class DashDQWizard:
                 "default_volume_path": self._e_vol_path.value.strip(),
             })
             path = _save_env(self.env)
-            with env_status:
-                clear_output(wait=True)
-                display(_info(f"✅ Saved to <code>{path}</code>", "ok"))
+            env_status.children = (_info(f"✅ Saved to <code>{path}</code>", "ok"),)
 
         def _reload(_):
             self.env = _load_env()
@@ -424,9 +421,7 @@ class DashDQWizard:
             self._e_default_cat.value = self.env.get("default_catalog", "")
             self._e_default_sch.value = self.env.get("default_schema", "")
             self._e_vol_path.value    = self.env.get("default_volume_path", "/Volumes/")
-            with env_status:
-                clear_output(wait=True)
-                display(_info("Reloaded from disk.", "info"))
+            env_status.children = (_info("Reloaded from disk.", "info"),)
 
         save_btn.on_click(_save)
         reload_btn.on_click(_reload)
@@ -478,7 +473,7 @@ class DashDQWizard:
         self._load_tbl_btn.layout  = w.Layout(height="36px")
 
         refresh_box, refresh_btn = _styled_btn("↺  Refresh Catalogs", "outline")
-        self._source_info = w.Output()
+        self._source_info = w.VBox([])   # children-swap
 
         self._cat_dd.observe(self._on_catalog_change, names="value")
         self._sch_dd.observe(self._on_schema_change,  names="value")
@@ -543,47 +538,43 @@ class DashDQWizard:
 
     def _do_load_table(self, _=None):
         self._full = f"{self._catalog}.{self._schema}.{self._table}"
-        with self._source_info:
-            clear_output(wait=True)
-            display(_info(f"Loading <code>{self._full}</code>…", "info"))
+        self._source_info.children = (_info(f"Loading <code>{self._full}</code>…", "info"),)
 
         cols, count = _table_info(self.spark, self._full) if self.spark else ([], -1)
         self._columns = cols
 
-        with self._source_info:
-            clear_output(wait=True)
-            if not cols:
-                display(_info("❌ Could not load table. Check permissions.", "error"))
-                return
+        if not cols:
+            self._source_info.children = (_info("❌ Could not load table. Check permissions.", "error"),)
+            return
 
-            rc = f"{count:,}" if count >= 0 else "—"
-            schema_rows = "".join(
-                f"<tr><td style='padding:3px 10px;font-family:monospace;border:1px solid #E8EBF0'>{n}</td>"
-                f"<td style='padding:3px 10px;color:#888;border:1px solid #E8EBF0'>{dt}</td></tr>"
-                for n, dt in cols
-            )
-            display(_h(
-                f"<div style='background:#F0F9FF;border:1px solid #BAE6FD;border-radius:5px;"
-                f"padding:10px 14px;margin-bottom:10px;font-size:12px'>"
-                f"✅ <b>{self._full}</b> &nbsp;·&nbsp; "
-                f"<b>{len(cols)}</b> columns &nbsp;·&nbsp; <b>{rc}</b> rows</div>"
-                f"<div style='max-height:220px;overflow-y:auto;border-radius:4px'>"
-                f"<table style='border-collapse:collapse;width:100%;font-size:12px'>"
-                f"<tr style='background:#F7F8FA'>"
-                f"<th style='padding:4px 10px;text-align:left;border:1px solid #E8EBF0'>Column</th>"
-                f"<th style='padding:4px 10px;text-align:left;border:1px solid #E8EBF0'>Type</th></tr>"
-                f"{schema_rows}</table></div>"
+        rc = f"{count:,}" if count >= 0 else "—"
+        schema_rows = "".join(
+            f"<tr><td style='padding:3px 10px;font-family:monospace;border:1px solid #E8EBF0'>{n}</td>"
+            f"<td style='padding:3px 10px;color:#888;border:1px solid #E8EBF0'>{dt}</td></tr>"
+            for n, dt in cols
+        )
+        info_widgets = [_h(
+            f"<div style='background:#F0F9FF;border:1px solid #BAE6FD;border-radius:5px;"
+            f"padding:10px 14px;margin-bottom:10px;font-size:12px'>"
+            f"✅ <b>{self._full}</b> &nbsp;·&nbsp; "
+            f"<b>{len(cols)}</b> columns &nbsp;·&nbsp; <b>{rc}</b> rows</div>"
+            f"<div style='max-height:220px;overflow-y:auto;border-radius:4px'>"
+            f"<table style='border-collapse:collapse;width:100%;font-size:12px'>"
+            f"<tr style='background:#F7F8FA'>"
+            f"<th style='padding:4px 10px;text-align:left;border:1px solid #E8EBF0'>Column</th>"
+            f"<th style='padding:4px 10px;text-align:left;border:1px solid #E8EBF0'>Type</th></tr>"
+            f"{schema_rows}</table></div>"
+        )]
+
+        cfg_dir = self.env.get("config_dir", "")
+        existing = _load_existing_checks(cfg_dir, self._full)
+        if existing:
+            self._checks = existing
+            info_widgets.append(_info(
+                f"✅ Loaded <b>{len(existing)} existing check(s)</b> from config directory.", "ok"
             ))
 
-            # Auto-load existing checks from config dir
-            cfg_dir = self.env.get("config_dir", "")
-            existing = _load_existing_checks(cfg_dir, self._full)
-            if existing:
-                self._checks = existing
-                display(_info(
-                    f"✅ Loaded <b>{len(existing)} existing check(s)</b> "
-                    f"from config directory.", "ok"
-                ))
+        self._source_info.children = tuple(info_widgets)
 
         # Refresh checks tab
         self._refresh_col_list()
@@ -628,8 +619,8 @@ class DashDQWizard:
         self._col_select.add_class("dq-col-select")
         self._col_select.observe(self._on_col_select, names="value")
 
-        # Right panel
-        self._right_panel = w.Output()
+        # Right panel — children-swap VBox (no Output widget, works in serverless)
+        self._right_panel = w.VBox([])
 
         # ── Add / Edit check form ──
         self._check_dd = w.Dropdown(
@@ -642,8 +633,8 @@ class DashDQWizard:
             value=100.0, min=0, max=100, step=0.5,
             layout=w.Layout(width="160px"),
         )
-        self._simple_out  = w.Output()
-        self._complex_out = w.Output()
+        self._simple_out  = w.VBox([])   # children-swap
+        self._complex_out = w.VBox([])   # children-swap
 
         self._add_btn_box, self._add_btn = _styled_btn("＋  Add Check", "primary")
         self._add_btn.on_click(self._do_add_check)
@@ -706,36 +697,35 @@ class DashDQWizard:
         dtype = next((dt for n, dt in self._columns if n == col), "")
         col_checks = [(i, c) for i, c in enumerate(self._checks) if c.get("column") == col]
 
-        with self._right_panel:
-            clear_output(wait=True)
-            n = len(col_checks)
-            display(_h(
-                f"<div style='margin-bottom:10px;display:flex;align-items:center;gap:10px'>"
-                f"<span style='font-size:14px;font-weight:700;color:#1B3A4B;"
-                f"font-family:monospace'>{col}</span>"
-                f"<span style='font-size:12px;color:#888'>{dtype}</span>"
-                f"<span style='background:#FF3621;color:#fff;border-radius:10px;"
-                f"padding:1px 8px;font-size:11px;font-weight:700'>{n} check{'s' if n!=1 else ''}</span>"
-                f"</div>"
-            ))
+        n = len(col_checks)
+        header = _h(
+            f"<div style='margin-bottom:10px;display:flex;align-items:center;gap:10px'>"
+            f"<span style='font-size:14px;font-weight:700;color:#1B3A4B;"
+            f"font-family:monospace'>{col}</span>"
+            f"<span style='font-size:12px;color:#888'>{dtype}</span>"
+            f"<span style='background:#FF3621;color:#fff;border-radius:10px;"
+            f"padding:1px 8px;font-size:11px;font-weight:700'>{n} check{'s' if n!=1 else ''}</span>"
+            f"</div>"
+        )
+        if not col_checks:
+            self._right_panel.children = (
+                header,
+                _info("No checks configured for this column. Use the form below to add.", "info"),
+            )
+        else:
+            rows = [header] + [self._build_check_row(idx, chk) for idx, chk in col_checks]
+            self._right_panel.children = tuple(rows)
 
-            if not col_checks:
-                display(_info("No checks configured for this column. Use the form below to add.", "info"))
-            else:
-                for glob_idx, chk in col_checks:
-                    self._render_check_row(glob_idx, chk)
-
-    def _render_check_row(self, glob_idx: int, chk: dict):
+    def _build_check_row(self, glob_idx: int, chk: dict) -> w.HBox:
+        """Return a single check-row widget (no display() call)."""
         dim  = CHECKS_REGISTRY.get(chk["check_name"], {}).get("dimension", "")
         params_str = ", ".join(f"{k}={v}" for k, v in (chk.get("params") or {}).items()) or "—"
         if len(params_str) > 80:
             params_str = params_str[:77] + "…"
 
-        # Remove button
         rm_box, rm_btn = _styled_btn("✕ Remove", "danger")
         rm_btn.layout = w.Layout(height="28px")
 
-        # Edit button
         ed_box, ed_btn = _styled_btn("✎ Edit", "outline")
         ed_btn.layout = w.Layout(height="28px")
 
@@ -770,7 +760,7 @@ class DashDQWizard:
             w.HBox([ed_box, rm_box]),
         ], layout=w.Layout(align_items="flex-start", padding="7px 10px", margin="0 0 6px 0"))
         row.add_class("dq-check-row")
-        display(row)
+        return row
 
     def _on_check_select(self, change):
         check_name = change["new"] if isinstance(change, dict) else change
@@ -786,26 +776,29 @@ class DashDQWizard:
         self._simple_widgets  = {}
         self._complex_widgets = {}
 
-        with self._simple_out:
-            clear_output(wait=True)
-            simple_params = {k: v for k, v in all_params.items() if k not in _COMPLEX_KEYS}
-            if not simple_params:
-                display(_h("<span style='color:#AAA;font-size:12px;font-style:italic'>No extra parameters.</span>"))
+        simple_params = {k: v for k, v in all_params.items() if k not in _COMPLEX_KEYS}
+        if not simple_params:
+            self._simple_out.children = (
+                _h("<span style='color:#AAA;font-size:12px;font-style:italic'>No extra parameters.</span>"),
+            )
+        else:
+            param_widgets = []
             for pname, default in simple_params.items():
                 widget = self._make_simple_widget(pname, default)
                 if widget:
                     self._simple_widgets[pname] = widget
-                    display(w.VBox([
+                    param_widgets.append(w.VBox([
                         _h(f"<div style='font-size:11px;color:#5C6673;font-weight:600;margin-bottom:2px'>"
                            f"{pname.replace('_',' ').title()}</div>"),
                         widget,
                     ], layout=w.Layout(margin="0 0 8px 0")))
+            self._simple_out.children = tuple(param_widgets)
 
-        with self._complex_out:
-            clear_output(wait=True)
-            complex_params = {k: v for k, v in all_params.items() if k in _COMPLEX_KEYS}
-            if complex_params:
-                display(self._make_complex_wizard(check_name, complex_params))
+        complex_params = {k: v for k, v in all_params.items() if k in _COMPLEX_KEYS}
+        if complex_params:
+            self._complex_out.children = (self._make_complex_wizard(check_name, complex_params),)
+        else:
+            self._complex_out.children = ()
 
         # Force col to _TABLE_LEVEL_ / _COMPOUND_ when applicable
         if entry.get("table_level") and self._selected_col not in ("", "_TABLE_LEVEL_"):
@@ -1077,14 +1070,12 @@ class DashDQWizard:
         })
 
         n = len(self._checks)
-        with self._save_status:
-            clear_output(wait=True)
-            display(_info(
-                f"✅ Config saved — <b>{n} check{'s' if n!=1 else ''}</b> on "
-                f"<code>{self._full or '(no table)'}</code>. "
-                "Now call <code>dashdq.run_checks(config)</code>.",
-                "ok",
-            ))
+        self._save_status.children = (_info(
+            f"✅ Config saved — <b>{n} check{'s' if n!=1 else ''}</b> on "
+            f"<code>{self._full or '(no table)'}</code>. "
+            "Now call <code>dashdq.run_checks(config)</code>.",
+            "ok",
+        ),)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1130,21 +1121,19 @@ def run_checks(config: dict, spark=None):
 def launch(spark=None):
     """All-in-one: open wizard + Run Checks button."""
     config = configure(spark)
-    result_out = w.Output()
+    result_out = w.VBox([])   # children-swap, no Output widget
     run_box, run_btn = _styled_btn("▶  Run Checks", "primary")
     run_btn.layout = w.Layout(height="38px", min_width="160px")
 
     def _run(_):
-        with result_out:
-            clear_output(wait=True)
-            if not config.get("checks"):
-                display(_info("⚠️ Click Save Configuration first and add at least one check.", "warn"))
-                return
-            display(_info("⏳ Running checks…", "info"))
-            try:
-                run_checks(config, spark)
-            except Exception as exc:
-                display(_info(f"❌ {exc}", "error"))
+        if not config.get("checks"):
+            result_out.children = (_info("⚠️ Click Save Configuration first and add at least one check.", "warn"),)
+            return
+        result_out.children = (_info("⏳ Running checks…", "info"),)
+        try:
+            run_checks(config, spark)
+        except Exception as exc:
+            result_out.children = (_info(f"❌ {exc}", "error"),)
 
     run_btn.on_click(_run)
     display(w.VBox([
