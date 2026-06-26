@@ -1,10 +1,10 @@
-## DashDQ v0.1.9
+## DashDQ v0.1.10
 
 **Released:** 2026-06-26
-**Previous:** v0.1.8
+**Previous:** v0.1.9
 
 ### Notes
-Fix cascade dropdowns: schema list was reading comment column instead of schema name
+Add table_summary() and table_quality_ok() — table-level output and pipeline gate
 
 ### What's included
 - All tests passing across Python 3.9, 3.10, 3.11, 3.12
@@ -13,12 +13,12 @@ Fix cascade dropdowns: schema list was reading comment column instead of schema 
 
 ### Install
 ```bash
-pip install dash-dq==0.1.9
+pip install dash-dq==0.1.10
 ```
 
 ### Quick Start (Databricks notebook)
 ```python
-%pip install dash-dq==0.1.9
+%pip install dash-dq==0.1.10
 import dashdq
 dashdq.launch()
 ```
