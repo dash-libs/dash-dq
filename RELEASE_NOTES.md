@@ -1,10 +1,10 @@
-## DashDQ v0.1.8
+## DashDQ v0.1.9
 
 **Released:** 2026-06-26
-**Previous:** v0.1.7
+**Previous:** v0.1.8
 
 ### Notes
-UI redesign: cascade selectors, new tab order, settings panel, serverless-compatible widgets
+Fix cascade dropdowns: schema list was reading comment column instead of schema name
 
 ### What's included
 - All tests passing across Python 3.9, 3.10, 3.11, 3.12
@@ -13,12 +13,12 @@ UI redesign: cascade selectors, new tab order, settings panel, serverless-compat
 
 ### Install
 ```bash
-pip install dash-dq==0.1.8
+pip install dash-dq==0.1.9
 ```
 
 ### Quick Start (Databricks notebook)
 ```python
-%pip install dash-dq==0.1.8
+%pip install dash-dq==0.1.9
 import dashdq
 dashdq.launch()
 ```
