@@ -15,7 +15,7 @@ Workflow::
 from dashdq.suite import run_checks, table_quality_ok, DQReport
 from dashdq.checks import CHECKS_REGISTRY, CheckResult
 
-__version__ = "0.1.10"
+__version__ = "0.1.11"
 __author__ = "Darshan Shah"
 __email__ = "darshan.innovation@gmail.com"
 __license__ = "Apache-2.0"

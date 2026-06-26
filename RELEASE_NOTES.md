@@ -1,10 +1,10 @@
-## DashDQ v0.1.10
+## DashDQ v0.1.11
 
 **Released:** 2026-06-26
-**Previous:** v0.1.9
+**Previous:** v0.1.10
 
 ### Notes
-Add table_summary() and table_quality_ok() — table-level output and pipeline gate
+Config JSON persistence and file-path support in run_checks
 
 ### What's included
 - All tests passing across Python 3.9, 3.10, 3.11, 3.12
@@ -13,12 +13,12 @@ Add table_summary() and table_quality_ok() — table-level output and pipeline g
 
 ### Install
 ```bash
-pip install dash-dq==0.1.10
+pip install dash-dq==0.1.11
 ```
 
 ### Quick Start (Databricks notebook)
 ```python
-%pip install dash-dq==0.1.10
+%pip install dash-dq==0.1.11
 import dashdq
 dashdq.launch()
 ```
