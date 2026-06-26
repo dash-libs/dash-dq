@@ -381,6 +381,10 @@ class DashDQWizard:
         root.add_class("dq-root")
         display(root)
 
+        # Populate Output widgets AFTER the tree is displayed — Databricks
+        # requires Output widgets to be part of the live comm before writing to them.
+        self._on_check_select({"new": self._check_dd.value})
+
     # ──────────────────── Tab 1: Environment ──────────────────────────────────
 
     def _make_env_tab(self) -> w.VBox:
@@ -661,9 +665,6 @@ class DashDQWizard:
             w.HBox([self._add_btn_box], layout=w.Layout(margin="8px 0 0 0")),
         ], layout=w.Layout(padding="14px", margin="10px 0 0 0"))
         self._add_form.add_class("dq-form-box")
-
-        # Trigger initial param form
-        self._on_check_select({"new": self._check_dd.value})
 
         right = w.VBox([self._right_panel, self._add_form], layout=w.Layout(flex="1"))
 
