@@ -1,10 +1,10 @@
-## DashDQ v0.1.12
+## DashDQ v0.1.14
 
 **Released:** 2026-06-26
-**Previous:** v0.1.11
+**Previous:** v0.1.13
 
 ### Notes
-Structured catalog/schema/table directory layout for config files and volume outputs
+Sequential 5-step wizard, column check table, dual outputs, serverless-safe
 
 ### What's included
 - All tests passing across Python 3.9, 3.10, 3.11, 3.12
@@ -13,12 +13,12 @@ Structured catalog/schema/table directory layout for config files and volume out
 
 ### Install
 ```bash
-pip install dash-dq==0.1.12
+pip install dash-dq==0.1.14
 ```
 
 ### Quick Start (Databricks notebook)
 ```python
-%pip install dash-dq==0.1.12
+%pip install dash-dq==0.1.14
 import dashdq
 dashdq.launch()
 ```
