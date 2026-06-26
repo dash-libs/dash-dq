@@ -774,14 +774,20 @@ class DashDQWizard:
     def _on_check_select(self, change):
         check_name = change["new"] if isinstance(change, dict) else change
         entry = CHECKS_REGISTRY.get(check_name, {})
-        params = entry.get("params", {})
+        raw_params = entry.get("params", [])
+
+        # params in the registry is a list of param names (no defaults)
+        if isinstance(raw_params, dict):
+            all_params = raw_params
+        else:
+            all_params = {k: None for k in raw_params}
 
         self._simple_widgets  = {}
         self._complex_widgets = {}
 
         with self._simple_out:
             clear_output(wait=True)
-            simple_params = {k: v for k, v in params.items() if k not in _COMPLEX_KEYS}
+            simple_params = {k: v for k, v in all_params.items() if k not in _COMPLEX_KEYS}
             if not simple_params:
                 display(_h("<span style='color:#AAA;font-size:12px;font-style:italic'>No extra parameters.</span>"))
             for pname, default in simple_params.items():
@@ -796,7 +802,7 @@ class DashDQWizard:
 
         with self._complex_out:
             clear_output(wait=True)
-            complex_params = {k: v for k, v in params.items() if k in _COMPLEX_KEYS}
+            complex_params = {k: v for k, v in all_params.items() if k in _COMPLEX_KEYS}
             if complex_params:
                 display(self._make_complex_wizard(check_name, complex_params))
 
