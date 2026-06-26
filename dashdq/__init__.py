@@ -22,9 +22,15 @@ __license__ = "Apache-2.0"
 __url__ = "https://github.com/dash-libs/dash-dq"
 
 __all__ = [
-    "configure", "run_checks", "table_quality_ok", "launch",
+    "env_setup", "configure", "run_checks", "table_quality_ok", "launch",
     "DQReport", "CheckResult", "CHECKS_REGISTRY",
 ]
+
+
+def env_setup() -> None:
+    """Open the DashDQ environment setup panel (configure paths and defaults)."""
+    from dashdq.ui import env_setup as _env_setup
+    return _env_setup()
 
 
 def configure(spark=None) -> dict:

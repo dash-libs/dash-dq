@@ -326,21 +326,11 @@ class DashDQWizard:
     # ── Root layout ───────────────────────────────────────────────────────────
 
     def _build(self):
-        self._env_panel = self._make_env_panel()
-        self._env_panel.layout.display = "none"
-
-        gear_box, gear_btn = _styled_btn("⚙️  Settings", "outline")
-        gear_btn.layout = w.Layout(height="28px")
-        def _toggle_env(_):
-            self._env_panel.layout.display = (
-                "none" if self._env_panel.layout.display == "" else ""
-            )
-        gear_btn.on_click(_toggle_env)
-
         header = w.HBox([
             _h("<div style='font-size:15px;font-weight:700;color:#1B3A4B;"
                "letter-spacing:.2px'>DashDQ — Data Quality Wizard</div>"),
-            gear_box,
+            _h("<div style='font-size:11px;color:#9CA3AF'>"
+               "Run <code>dashdq.env_setup()</code> to configure paths &amp; defaults</div>"),
         ], layout=w.Layout(justify_content="space-between", align_items="center",
                            margin="0 0 8px 0"))
 
@@ -362,7 +352,7 @@ class DashDQWizard:
         nav.add_class("dq-gap-8")
 
         root = w.VBox([
-            header, self._env_panel, self._progress, self._content, nav,
+            header, self._progress, self._content, nav,
         ], layout=w.Layout(max_width="1160px", padding="12px"))
         root.add_class("dq-root")
         display(root)
@@ -435,66 +425,6 @@ class DashDQWizard:
                 )
                 return
             self._go_to(self._step + 1)
-
-    # ── Settings panel ────────────────────────────────────────────────────────
-
-    def _make_env_panel(self) -> w.VBox:
-        e = self.env
-        self._e_config_dir  = w.Text(value=e.get("config_dir", ""),
-                                     placeholder="/Workspace/Shared/dashdq_configs",
-                                     layout=w.Layout(width="100%"))
-        self._e_default_cat = w.Text(value=e.get("default_catalog", ""),
-                                     placeholder="e.g. ai_innovation_gold_dev",
-                                     layout=w.Layout(width="100%"))
-        self._e_default_sch = w.Text(value=e.get("default_schema", ""),
-                                     placeholder="e.g. sdh",
-                                     layout=w.Layout(width="100%"))
-        self._e_vol_path    = w.Text(value=e.get("default_volume_path", "/Volumes/"),
-                                     placeholder="/Volumes/catalog/schema/volume",
-                                     layout=w.Layout(width="100%"))
-
-        env_status = w.VBox([])
-        save_box, save_btn   = _styled_btn("💾  Save Settings", "secondary")
-        reload_box, reload_btn = _styled_btn("↺  Reload", "outline")
-
-        def _save(_):
-            self.env.update({
-                "config_dir":          self._e_config_dir.value.strip(),
-                "default_catalog":     self._e_default_cat.value.strip(),
-                "default_schema":      self._e_default_sch.value.strip(),
-                "default_volume_path": self._e_vol_path.value.strip(),
-            })
-            path = _save_env(self.env)
-            env_status.children = (_info(f"✅ Saved to <code>{path}</code>", "ok"),)
-
-        def _reload(_):
-            self.env = _load_env()
-            self._e_config_dir.value  = self.env.get("config_dir", "")
-            self._e_default_cat.value = self.env.get("default_catalog", "")
-            self._e_default_sch.value = self.env.get("default_schema", "")
-            self._e_vol_path.value    = self.env.get("default_volume_path", "/Volumes/")
-            env_status.children = (_info("Reloaded.", "info"),)
-
-        save_btn.on_click(_save)
-        reload_btn.on_click(_reload)
-
-        panel = w.VBox([
-            _h("<div style='font-size:12px;font-weight:700;color:#1B3A4B;margin-bottom:10px'>"
-               "⚙️  Environment Settings</div>"),
-            _info("Saved to <code>~/dashdq_env.json</code> (or <code>$DASHDQ_ENV_PATH</code>). "
-                  "Defaults pre-fill dropdowns and output paths across sessions.", "info"),
-            _field("DashDQ Config Directory", self._e_config_dir),
-            w.HBox([
-                _field("Default Catalog", self._e_default_cat),
-                w.HTML("&nbsp;&nbsp;"),
-                _field("Default Schema",  self._e_default_sch),
-            ]),
-            _field("Default Volume Output Path", self._e_vol_path),
-            w.HBox([save_box, reload_box], layout=w.Layout(margin="4px 0 0 0")),
-            env_status,
-        ], layout=w.Layout(padding="14px", margin="0 0 10px 0"))
-        panel.add_class("dq-form-box")
-        return panel
 
     # ── Step 1: Source ────────────────────────────────────────────────────────
 
@@ -1277,20 +1207,23 @@ class DashDQWizard:
         # Persist to config_dir/catalog/schema/table.json
         config_dir = self.env.get("config_dir", "").strip()
         saved_path = ""
+        write_error = ""
         if config_dir and self._full:
+            parts = self._full.split(".")
+            cat, sch, tbl = (parts + ["", "", ""])[:3]
+            target_dir = os.path.join(config_dir, cat, sch)
+            attempt_path = os.path.join(target_dir, f"{tbl}.json")
             try:
-                parts = self._full.split(".")
-                cat, sch, tbl = (parts + ["", "", ""])[:3]
-                target_dir = os.path.join(config_dir, cat, sch)
                 os.makedirs(target_dir, exist_ok=True)
-                saved_path = os.path.join(target_dir, f"{tbl}.json")
-                with open(saved_path, "w") as f:
-                    json.dump(self._config, f, indent=2)
             except Exception as exc:
-                self._nav_msg.children = (
-                    _info(f"⚠️ Config built in-memory but could not write to disk: {exc}", "warn"),
-                )
-                return
+                write_error = f"Could not create directory <code>{target_dir}</code>: {exc}"
+            if not write_error:
+                try:
+                    with open(attempt_path, "w") as f:
+                        json.dump(self._config, f, indent=2)
+                    saved_path = attempt_path
+                except Exception as exc:
+                    write_error = f"Could not write <code>{attempt_path}</code>: {exc}"
 
         n = len(all_checks)
         col_n = sum(
@@ -1311,12 +1244,19 @@ class DashDQWizard:
             f"ok = dashdq.table_quality_ok(config_path, spark=spark)"
         )
 
-        path_line = (
-            f"Saved to <code>{saved_path}</code>"
-            if saved_path
-            else "⚠️ No Config Directory set — config is in-memory only. "
-                 "Set a path in ⚙️ Settings to persist."
-        )
+        if saved_path:
+            path_line = f"✅ Saved to <code>{saved_path}</code>"
+        elif write_error:
+            path_line = (
+                f"⚠️ Write failed — {write_error}<br>"
+                f"Config is in-memory only. Run <code>dashdq.env_setup()</code> "
+                f"to fix the Config Directory."
+            )
+        else:
+            path_line = (
+                "⚠️ No Config Directory set — config is in-memory only. "
+                "Run <code>dashdq.env_setup()</code> to set a path."
+            )
 
         self._nav_msg.children = (_h(
             f"<div style='background:#F0FDF4;border:1px solid #BBF7D0;"
@@ -1336,8 +1276,145 @@ class DashDQWizard:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# DashDQEnvSetup — standalone environment configuration panel
+# ═════════════════════════════════════════════════════════════════════════════
+
+class DashDQEnvSetup:
+    """Standalone panel to configure DashDQ environment defaults."""
+
+    def __init__(self):
+        self.env = _load_env()
+        display(HTML(_CSS))
+        self._build()
+
+    def _build(self):
+        e = self.env
+
+        config_dir_wgt = w.Text(
+            value=e.get("config_dir", ""),
+            placeholder="/Workspace/Shared/dashdq_configs",
+            layout=w.Layout(width="100%"),
+        )
+        default_cat_wgt = w.Text(
+            value=e.get("default_catalog", ""),
+            placeholder="e.g. ai_innovation_gold_dev",
+            layout=w.Layout(width="100%"),
+        )
+        default_sch_wgt = w.Text(
+            value=e.get("default_schema", ""),
+            placeholder="e.g. sdh",
+            layout=w.Layout(width="100%"),
+        )
+        vol_path_wgt = w.Text(
+            value=e.get("default_volume_path", "/Volumes/"),
+            placeholder="/Volumes/catalog/schema/volume",
+            layout=w.Layout(width="100%"),
+        )
+
+        status = w.VBox([])
+        save_box,   save_btn   = _styled_btn("💾  Save Settings", "primary")
+        reload_box, reload_btn = _styled_btn("↺  Reload from disk", "secondary")
+        test_box,   test_btn   = _styled_btn("🔍  Test config path", "outline")
+        save_btn.layout   = w.Layout(height="34px")
+        reload_btn.layout = w.Layout(height="34px")
+        test_btn.layout   = w.Layout(height="34px")
+
+        def _save(_):
+            self.env.update({
+                "config_dir":          config_dir_wgt.value.strip(),
+                "default_catalog":     default_cat_wgt.value.strip(),
+                "default_schema":      default_sch_wgt.value.strip(),
+                "default_volume_path": vol_path_wgt.value.strip(),
+            })
+            try:
+                path = _save_env(self.env)
+                status.children = (_info(
+                    f"✅ Settings saved to <code>{path}</code>. "
+                    "Reload the wizard for defaults to take effect.", "ok"
+                ),)
+            except Exception as exc:
+                status.children = (_info(f"❌ Could not save settings: {exc}", "error"),)
+
+        def _reload(_):
+            self.env = _load_env()
+            config_dir_wgt.value  = self.env.get("config_dir", "")
+            default_cat_wgt.value = self.env.get("default_catalog", "")
+            default_sch_wgt.value = self.env.get("default_schema", "")
+            vol_path_wgt.value    = self.env.get("default_volume_path", "/Volumes/")
+            status.children = (_info(f"Reloaded from <code>{_ENV_PATH}</code>.", "info"),)
+
+        def _test_path(_):
+            path = config_dir_wgt.value.strip()
+            if not path:
+                status.children = (_info("⚠️ Enter a Config Directory path first.", "warn"),)
+                return
+            test_file = os.path.join(path, ".dashdq_write_test")
+            try:
+                os.makedirs(path, exist_ok=True)
+                with open(test_file, "w") as f:
+                    f.write("ok")
+                os.remove(test_file)
+                status.children = (_info(
+                    f"✅ Path <code>{path}</code> is writable.", "ok"
+                ),)
+            except Exception as exc:
+                status.children = (_info(
+                    f"❌ Cannot write to <code>{path}</code>: {exc}", "error"
+                ),)
+
+        save_btn.on_click(_save)
+        reload_btn.on_click(_reload)
+        test_btn.on_click(_test_path)
+
+        root = w.VBox([
+            _sec("⚙️  DashDQ Environment Setup"),
+            _info(
+                f"Settings are saved to <code>{_ENV_PATH}</code> "
+                f"(override with <code>$DASHDQ_ENV_PATH</code>). "
+                "The wizard reads these on every launch.", "info"
+            ),
+            w.VBox([
+                _label("Config Directory"),
+                _h("<div style='font-size:11px;color:#888;margin-bottom:4px'>"
+                   "Where check configs are saved as "
+                   "<code>config_dir/catalog/schema/table.json</code>. "
+                   "Use a Workspace path e.g. "
+                   "<code>/Workspace/Shared/dashdq_configs</code> "
+                   "or a Volume path.</div>"),
+                config_dir_wgt,
+            ], layout=w.Layout(margin="0 0 12px 0")),
+            w.HBox([
+                _field("Default Catalog", default_cat_wgt),
+                w.HTML("&nbsp;&nbsp;"),
+                _field("Default Schema",  default_sch_wgt),
+            ]),
+            _field("Default Volume Output Path", vol_path_wgt),
+            w.HBox([save_box, reload_box, test_box],
+                   layout=w.Layout(margin="6px 0 0 0")),
+            status,
+        ], layout=w.Layout(max_width="860px", padding="14px"))
+        root.add_class("dq-root")
+        root.add_class("dq-form-box")
+        display(root)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Public API
 # ═════════════════════════════════════════════════════════════════════════════
+
+def env_setup() -> None:
+    """
+    Open the DashDQ environment setup panel.
+
+    Configure once; settings persist to ``~/dashdq_env.json`` and are read
+    automatically by every subsequent ``dashdq.configure()`` call::
+
+        dashdq.env_setup()   # set config_dir, default catalog/schema, volume path
+        config = dashdq.configure(spark=spark)
+    """
+    global _active_wizard
+    _active_wizard = DashDQEnvSetup()
+
 
 def configure(spark=None) -> dict:
     """
