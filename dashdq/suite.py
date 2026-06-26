@@ -44,38 +44,50 @@ class DQReport:
         }
 
     def save(self, output_cfg: dict, spark=None):
-        """Persist results according to output_cfg (from configure())."""
-        otype = output_cfg.get("type", "dataframe")
+        """Persist results to one or more destinations defined in output_cfg."""
+        import os
 
-        if otype == "dataframe":
-            return self.to_spark_df(spark)
+        # Support both old single-type ("type") and new multi-type ("types") format
+        types = output_cfg.get("types") or ([output_cfg["type"]] if "type" in output_cfg else ["dataframe"])
 
-        if otype == "delta":
-            sdf = self.to_spark_df(spark)
-            table = output_cfg["delta_table"]
-            (sdf.write.format("delta")
-                .mode("append")
-                .option("mergeSchema", "true")
-                .saveAsTable(table))
-            print(f"✅ Saved to Delta table: {table}")
-            return sdf
+        results = {}
+        sdf = None
 
-        if otype in ("volume_json", "volume_csv"):
-            import os
-            path = output_cfg.get("volume_path", "").rstrip("/")
-            filename = output_cfg.get("filename", f"dq_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-            ext = "json" if otype == "volume_json" else "csv"
-            full = f"{path}/{filename}.{ext}"
-            pdf = self.to_pandas()
-            os.makedirs(path, exist_ok=True)
-            if ext == "json":
-                pdf.to_json(full, orient="records", indent=2)
-            else:
-                pdf.to_csv(full, index=False)
-            print(f"✅ Saved to: {full}")
-            return full
+        for otype in types:
+            if otype == "dataframe":
+                if sdf is None:
+                    sdf = self.to_spark_df(spark)
+                results["dataframe"] = sdf
 
-        return self.to_spark_df(spark)
+            elif otype == "delta":
+                if sdf is None:
+                    sdf = self.to_spark_df(spark)
+                table = output_cfg.get("delta_table", "")
+                if not table:
+                    print("⚠️  delta_table not set — skipping Delta output")
+                    continue
+                (sdf.write.format("delta")
+                    .mode("append")
+                    .option("mergeSchema", "true")
+                    .saveAsTable(table))
+                print(f"✅ Saved to Delta table: {table}")
+                results["delta"] = sdf
+
+            elif otype in ("volume_json", "volume_csv"):
+                vol_path = output_cfg.get("volume_path", "").rstrip("/")
+                filename = output_cfg.get("filename") or f"dq_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                ext = "json" if otype == "volume_json" else "csv"
+                full = f"{vol_path}/{filename}.{ext}"
+                pdf = self.to_pandas()
+                os.makedirs(vol_path, exist_ok=True)
+                if ext == "json":
+                    pdf.to_json(full, orient="records", indent=2)
+                else:
+                    pdf.to_csv(full, index=False)
+                print(f"✅ Saved to: {full}")
+                results[otype] = full
+
+        return results.get("dataframe") or (sdf if sdf is not None else None)
 
 
 def run_checks(config: dict, spark=None) -> DQReport:
@@ -109,6 +121,7 @@ def run_checks(config: dict, spark=None) -> DQReport:
     total_cols = len(df.columns)
     metadata = config.get("metadata", {})
     run_ts = datetime.now().isoformat(timespec="seconds")
+    tags_str = ",".join(metadata.get("tags", []))
 
     checked_cols: set[str] = set()
     results: list[CheckResult] = []
@@ -154,6 +167,7 @@ def run_checks(config: dict, spark=None) -> DQReport:
             data_steward=metadata.get("data_steward", ""),
             business_domain=metadata.get("business_domain", ""),
             table_description=metadata.get("description", ""),
+            tags=tags_str,
             columns_checked=0,       # back-filled below
             total_columns=total_cols,
             column_coverage_pct=0.0,
@@ -170,7 +184,8 @@ def run_checks(config: dict, spark=None) -> DQReport:
 
     # Auto-save if output block present and not dataframe-only
     output_cfg = config.get("output", {})
-    if output_cfg and output_cfg.get("type", "dataframe") != "dataframe":
+    types = output_cfg.get("types") or ([output_cfg.get("type", "dataframe")])
+    if output_cfg and types != ["dataframe"]:
         report.save(output_cfg, spark)
 
     return report

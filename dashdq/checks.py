@@ -43,6 +43,7 @@ class CheckResult:
     columns_checked: int = 0
     total_columns: int = 0
     column_coverage_pct: float = 0.0
+    tags: str = ""
 
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items()}

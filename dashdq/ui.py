@@ -1,565 +1,1126 @@
-"""
-DashDQ interactive configuration wizard for Databricks notebooks.
+"""DashDQ UI — Databricks-themed interactive wizard.
 
-Usage::
-
-    # Cell 1 — open wizard, fill in UI, click "Save Config"
-    config = dashdq.configure()
-
-    # Cell 2 — run after saving config
-    report = dashdq.run_checks(config)
-    report.display()
-
-Or all-in-one::
-
-    dashdq.launch()
+Tabs:
+  ⚙️ Environment  — workspace paths, defaults, pre-filled from config file
+  📊 Source        — Unity Catalog cascade: catalog → schema → table
+  🏷️ Metadata      — owner, steward, domain, tags, description (stored in output)
+  ✅ Checks        — per-column multi-check builder with complex-check wizard
+  📤 Output        — multi-destination: DataFrame, Delta, Volume JSON/CSV
 """
 from __future__ import annotations
+import json
+import os
 from datetime import datetime
 
+import ipywidgets as w
+from IPython.display import display, HTML, clear_output
 
-def _spark():
-    from pyspark.sql import SparkSession
-    return SparkSession.getActiveSession()
+from dashdq.checks import CHECKS_REGISTRY, DQ_DIMENSIONS
 
+# ─── Theme constants ──────────────────────────────────────────────────────────
 
-def _dim_badge(dimension: str) -> str:
-    colors = {
-        "Completeness": "#1565C0",
-        "Accuracy":     "#2E7D32",
-        "Integrity":    "#6A1B9A",
-        "Consistency":  "#E65100",
-    }
-    c = colors.get(dimension, "#555")
-    return (f"<span style='background:{c};color:#fff;padding:2px 8px;"
-            f"border-radius:10px;font-size:11px;font-weight:600'>{dimension}</span>")
+_DIM_BG   = {"Completeness": "#DBEAFE", "Accuracy": "#DCFCE7",
+              "Integrity": "#FEF3C7",   "Consistency": "#F3E8FF"}
+_DIM_FG   = {"Completeness": "#1E40AF", "Accuracy": "#166534",
+              "Integrity": "#92400E",   "Consistency": "#6B21A8"}
 
+_COMPLEX_KEYS = {
+    "reference_table", "reference_column", "column_b", "columns",
+    "valid_pairs", "expected_schema", "check_orphans",
+}
 
-def _suggested_filename(table: str) -> str:
-    short = table.split(".")[-1] if "." in table else table
-    return f"dq_{short}_{datetime.now().strftime('%Y%m%d')}"
+_ENV_PATH = os.environ.get("DASHDQ_ENV_PATH", os.path.expanduser("~/dashdq_env.json"))
 
+_DEFAULT_ENV: dict = {
+    "config_dir":           "",
+    "default_catalog":      "",
+    "default_schema":       "",
+    "default_volume_path":  "/Volumes/",
+    "library_paths":        [],
+}
 
-def _make_param_widgets(params: list, all_cols: list):
-    """Build one ipywidget per parameter in the check's params list."""
-    import ipywidgets as w
-    widgets = {}
-    for p in params:
-        if p in ("min_value", "max_value", "sum_value"):
-            widgets[p] = w.FloatText(
-                description=f"{p}:",
-                layout=w.Layout(width="240px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "value":
-            widgets[p] = w.FloatText(
-                description="value:",
-                layout=w.Layout(width="240px"),
-                style={"description_width": "120px"},
-            )
-        elif p in ("n_days", "n_minutes"):
-            widgets[p] = w.IntText(
-                value=30 if p == "n_days" else 60,
-                description=f"{p}:",
-                layout=w.Layout(width="200px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "quantile":
-            widgets[p] = w.FloatSlider(
-                value=0.5, min=0.0, max=1.0, step=0.05,
-                description="quantile:",
-                readout_format=".2f",
-                layout=w.Layout(width="340px"),
-                style={"description_width": "120px"},
-            )
-        elif p in ("value_set", "regex_list", "type_list"):
-            label = {"value_set": "value_set:", "regex_list": "regex_list:", "type_list": "type_list:"}[p]
-            widgets[p] = w.Textarea(
-                description=label,
-                placeholder="A, B, C  (comma-separated)",
-                layout=w.Layout(width="380px", height="60px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "columns":
-            widgets[p] = w.Text(
-                description="columns:",
-                placeholder="col_a, col_b, col_c  (comma-separated)",
-                layout=w.Layout(width="380px"),
-                style={"description_width": "120px"},
-            )
-        elif p in ("column_set", "column_list"):
-            widgets[p] = w.Textarea(
-                description=f"{p}:",
-                placeholder="col_a, col_b, col_c  (comma-separated)",
-                layout=w.Layout(width="380px", height="60px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "regex":
-            widgets[p] = w.Text(
-                description="regex:",
-                placeholder=r"^\d{4}-\d{2}-\d{2}$",
-                layout=w.Layout(width="380px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "like_pattern":
-            widgets[p] = w.Text(
-                description="like_pattern:",
-                placeholder="ABC%  or  %_suffix",
-                layout=w.Layout(width="280px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "strftime_format":
-            widgets[p] = w.Text(
-                value="%Y-%m-%d",
-                description="format:",
-                layout=w.Layout(width="240px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "type_":
-            widgets[p] = w.Dropdown(
-                options=["string", "int", "long", "double", "float",
-                         "boolean", "date", "timestamp", "decimal"],
-                description="type_:",
-                style={"description_width": "120px"},
-            )
-        elif p == "column_b":
-            widgets[p] = w.Dropdown(
-                options=[""] + list(all_cols),
-                description="column_b:",
-                style={"description_width": "120px"},
-            )
-        elif p == "reference_table":
-            widgets[p] = w.Text(
-                description="ref. table:",
-                placeholder="catalog.schema.dim_table",
-                layout=w.Layout(width="380px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "reference_column":
-            widgets[p] = w.Text(
-                description="ref. column:",
-                placeholder="id",
-                layout=w.Layout(width="280px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "check_orphans":
-            widgets[p] = w.Checkbox(
-                value=False,
-                description="check orphans (bidirectional)",
-                style={"description_width": "120px"},
-            )
-        elif p == "valid_pairs":
-            widgets[p] = w.Textarea(
-                description="valid_pairs:",
-                placeholder='[["A","X"],["B","Y"]]  (JSON array of pairs)',
-                layout=w.Layout(width="380px", height="80px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "expected_schema":
-            widgets[p] = w.Textarea(
-                description="expected_schema:",
-                placeholder='{"id": "int", "name": "string"}  (JSON)',
-                layout=w.Layout(width="380px", height="80px"),
-                style={"description_width": "120px"},
-            )
-        elif p == "sql_filter":
-            widgets[p] = w.Textarea(
-                description="sql_filter:",
-                placeholder="age < 0 OR salary IS NULL  (SQL WHERE clause — matching rows FAIL)",
-                layout=w.Layout(width="500px", height="70px"),
-                style={"description_width": "120px"},
-            )
-    return widgets
+# ─── CSS ─────────────────────────────────────────────────────────────────────
 
+_CSS = """
+<style>
+/* ── General ── */
+.dq-root { font-family: -apple-system,'Segoe UI',Roboto,Oxygen,sans-serif; }
 
-def _read_params(param_widgets: dict) -> dict:
-    import json as _json
-    out = {}
-    for k, widget in param_widgets.items():
-        val = widget.value
-        if k in ("value_set", "regex_list", "type_list"):
-            out[k] = [v.strip() for v in str(val).split(",") if v.strip()]
-        elif k in ("columns", "column_set", "column_list"):
-            out[k] = [v.strip() for v in str(val).split(",") if v.strip()]
-        elif k in ("valid_pairs", "expected_schema"):
-            try:
-                out[k] = _json.loads(val) if val.strip() else ([] if k == "valid_pairs" else {})
-            except Exception:
-                out[k] = [] if k == "valid_pairs" else {}
-        else:
-            out[k] = val
-    return out
+/* ── Tab bar (supports both p- and lm- JupyterLab prefixes) ── */
+.dq-tabs .p-TabBar,
+.dq-tabs .lm-TabBar {
+    background: #F7F8FA !important;
+    border-bottom: 1px solid #E8EBF0 !important;
+}
+.dq-tabs .p-TabBar-tab,
+.dq-tabs .lm-TabBar-tab {
+    background: #F7F8FA !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    color: #5C6673 !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    padding: 9px 18px !important;
+    transition: color .15s;
+}
+.dq-tabs .p-TabBar-tab.p-mod-current,
+.dq-tabs .lm-TabBar-tab.lm-mod-current {
+    background: #fff !important;
+    color: #1B3A4B !important;
+    border-bottom: 2px solid #FF3621 !important;
+    font-weight: 700 !important;
+}
+.dq-tabs .p-TabBar-tab:hover:not(.p-mod-current),
+.dq-tabs .lm-TabBar-tab:hover:not(.lm-mod-current) {
+    color: #1B3A4B !important;
+    background: #EEF1F4 !important;
+}
+.dq-tabs .widget-tab-contents { background: #fff !important; }
 
+/* ── Section header ── */
+.dq-sec {
+    background: linear-gradient(90deg,#1B3A4B 0%,#2D5A7B 100%);
+    color: #fff; padding: 7px 14px; border-radius: 5px;
+    font-size: 12px; font-weight: 700; letter-spacing: .3px;
+    margin-bottom: 10px;
+}
 
-# ── configure() ───────────────────────────────────────────────────────────────
+/* ── Dimension badges ── */
+.dq-badge { padding: 2px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.dq-Completeness { background:#DBEAFE; color:#1E40AF; }
+.dq-Accuracy     { background:#DCFCE7; color:#166534; }
+.dq-Integrity    { background:#FEF3C7; color:#92400E; }
+.dq-Consistency  { background:#F3E8FF; color:#6B21A8; }
 
-def configure() -> dict:
-    """
-    Open the DQ configuration wizard. Returns a dict that fills in when
-    you click **Save Config**. Pass it to ``dashdq.run_checks(config)``.
-    """
+/* ── Alerts ── */
+.dq-info  { background:#EFF6FF; border-left:3px solid #1890FF; padding:8px 12px; border-radius:0 4px 4px 0; font-size:12px; margin:4px 0 10px 0; }
+.dq-ok    { background:#F0FDF4; border-left:3px solid #43A047; padding:8px 12px; border-radius:0 4px 4px 0; font-size:12px; margin:4px 0 10px 0; }
+.dq-warn  { background:#FFFBEB; border-left:3px solid #FFA000; padding:8px 12px; border-radius:0 4px 4px 0; font-size:12px; margin:4px 0 10px 0; }
+.dq-error { background:#FEF2F2; border-left:3px solid #C62828; padding:8px 12px; border-radius:0 4px 4px 0; font-size:12px; margin:4px 0 10px 0; }
+
+/* ── Buttons via class on wrapping div ── */
+.dq-primary  .widget-button { background:#FF3621!important; color:#fff!important; border:none!important; border-radius:4px!important; font-weight:600!important; }
+.dq-primary  .widget-button:hover { background:#D92B1A!important; }
+.dq-secondary .widget-button { background:#fff!important; color:#1B3A4B!important; border:1px solid #1B3A4B!important; border-radius:4px!important; }
+.dq-outline  .widget-button { background:transparent!important; color:#1890FF!important; border:1px solid #1890FF!important; border-radius:4px!important; }
+.dq-danger   .widget-button { background:transparent!important; color:#C62828!important; border:1px solid #C62828!important; border-radius:4px!important; font-size:11px!important; }
+.dq-success  .widget-button { background:#43A047!important; color:#fff!important; border:none!important; border-radius:4px!important; font-weight:600!important; }
+
+/* ── Column selector ── */
+.dq-col-select select {
+    font-family:'Monaco','Consolas',monospace!important;
+    font-size:12px!important;
+    border:1px solid #E8EBF0!important;
+    border-radius:4px!important;
+}
+
+/* ── Complex wizard panel ── */
+.dq-wizard {
+    background:#FFFBEB; border:1.5px solid #FDE68A;
+    border-radius:6px; padding:14px; margin-top:10px;
+}
+.dq-wizard-title {
+    font-size:12px; font-weight:700; color:#92400E;
+    margin-bottom:10px; display:flex; align-items:center; gap:6px;
+}
+
+/* ── Summary banner ── */
+.dq-summary {
+    background:linear-gradient(90deg,#1B3A4B,#2D5A7B);
+    color:#fff; border-radius:6px; padding:12px 20px;
+    font-size:13px; font-weight:600; margin-top:12px;
+}
+.dq-pass { color:#86EFAC; }
+.dq-fail { color:#FCA5A5; }
+</style>
+"""
+
+# ─── Spark helpers ────────────────────────────────────────────────────────────
+
+def _get_spark():
     try:
-        import ipywidgets as w
-        from IPython.display import display, HTML
-    except ImportError:
-        raise RuntimeError("ipywidgets required. Run: %pip install ipywidgets")
+        from pyspark.sql import SparkSession
+        return SparkSession.getActiveSession()
+    except Exception:
+        return None
 
-    from dashdq.checks import CHECKS_REGISTRY, DQ_DIMENSIONS
 
-    config: dict = {}
-    all_cols: list = []
-    configured_checks: list = []
-    param_widgets_ref: list = [{}]   # mutable container so closures can update it
+def _list_catalogs(spark) -> list[str]:
+    try:
+        return sorted(r[0] for r in spark.sql("SHOW CATALOGS").collect())
+    except Exception:
+        return []
 
-    # ─── Tab 1: Source & Metadata ─────────────────────────────────────────────
-    table_inp = w.Text(
-        placeholder="catalog.schema.table_name",
-        description="Table:",
-        layout=w.Layout(width="420px"),
-        style={"description_width": "80px"},
-    )
-    load_btn = w.Button(description="Load Columns", button_style="info",
-                        layout=w.Layout(width="140px"))
-    load_out = w.Output()
 
-    owner_inp   = w.Text(description="Data Owner:",    placeholder="optional",
-                         layout=w.Layout(width="340px"), style={"description_width": "120px"})
-    steward_inp = w.Text(description="Data Steward:",  placeholder="optional",
-                         layout=w.Layout(width="340px"), style={"description_width": "120px"})
-    domain_inp  = w.Text(description="Domain:",        placeholder="optional",
-                         layout=w.Layout(width="340px"), style={"description_width": "120px"})
-    desc_inp    = w.Textarea(description="Description:", placeholder="optional",
-                             layout=w.Layout(width="420px", height="60px"),
-                             style={"description_width": "120px"})
+def _list_schemas(spark, catalog: str) -> list[str]:
+    try:
+        return sorted(r[1] for r in spark.sql(f"SHOW SCHEMAS IN `{catalog}`").collect())
+    except Exception:
+        try:
+            return sorted(r[0] for r in spark.sql("SHOW DATABASES").collect())
+        except Exception:
+            return []
 
-    tab1 = w.VBox([
-        w.HTML("<b>Source table</b>"),
-        w.HBox([table_inp, load_btn]),
-        load_out,
-        w.HTML("<hr><b>Metadata <span style='color:#888;font-weight:normal'>(all optional)</span></b>"),
-        owner_inp, steward_inp, domain_inp, desc_inp,
-    ])
 
-    # ─── Tab 2: Check Builder ─────────────────────────────────────────────────
-    col_dd = w.Dropdown(
-        description="Column:",
-        options=["(load columns first)"],
-        layout=w.Layout(width="300px"),
-        style={"description_width": "70px"},
-    )
+def _list_tables(spark, catalog: str, schema: str) -> list[str]:
+    try:
+        rows = spark.sql(f"SHOW TABLES IN `{catalog}`.`{schema}`").collect()
+        return sorted(r[1] for r in rows)
+    except Exception:
+        try:
+            rows = spark.sql(f"SHOW TABLES IN `{schema}`").collect()
+            return sorted(r[1] for r in rows)
+        except Exception:
+            return []
 
-    # Options grouped by dimension
-    check_opts = []
+
+def _table_info(spark, full_table: str) -> tuple[list[tuple[str, str]], int]:
+    """Returns ([(col, dtype), ...], row_count)."""
+    try:
+        df = spark.table(full_table)
+        cols = [(f.name, f.dataType.simpleString()) for f in df.schema.fields]
+        count = df.count()
+        return cols, count
+    except Exception:
+        return [], -1
+
+
+# ─── Config file helpers ──────────────────────────────────────────────────────
+
+def _load_env() -> dict:
+    if os.path.exists(_ENV_PATH):
+        try:
+            with open(_ENV_PATH) as f:
+                return {**_DEFAULT_ENV, **json.load(f)}
+        except Exception:
+            pass
+    return dict(_DEFAULT_ENV)
+
+
+def _save_env(cfg: dict) -> str:
+    with open(_ENV_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+    return _ENV_PATH
+
+
+def _load_existing_checks(config_dir: str, table: str) -> list[dict]:
+    if not config_dir or not os.path.isdir(config_dir):
+        return []
+    checks: list[dict] = []
+    for fname in sorted(os.listdir(config_dir)):
+        if not fname.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(config_dir, fname)) as f:
+                cfg = json.load(f)
+            if cfg.get("source", {}).get("table") == table:
+                checks.extend(cfg.get("checks", []))
+        except Exception:
+            pass
+    return checks
+
+
+# ─── Widget helpers ───────────────────────────────────────────────────────────
+
+def _h(html: str) -> w.HTML:
+    return w.HTML(html)
+
+
+def _sec(title: str) -> w.HTML:
+    return _h(f"<div class='dq-sec'>{title}</div>")
+
+
+def _label(text: str) -> w.HTML:
+    return _h(f"<div style='font-size:11px;color:#5C6673;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px'>{text}</div>")
+
+
+def _info(text: str, kind: str = "info") -> w.HTML:
+    return _h(f"<div class='dq-{kind}'>{text}</div>")
+
+
+def _badge(dim: str) -> str:
+    return f"<span class='dq-badge dq-{dim}'>{dim}</span>"
+
+
+def _field(label: str, widget, width: str = "100%") -> w.VBox:
+    widget.layout.width = width
+    return w.VBox([_label(label), widget], layout=w.Layout(margin="0 0 10px 0"))
+
+
+def _mk_btn(label: str, kind: str = "primary") -> w.Button:
+    btn = w.Button(description=label)
+    return btn
+
+
+def _styled_btn(label: str, kind: str = "primary") -> w.HBox:
+    btn = w.Button(description=label)
+    box = w.HBox([btn])
+    box.add_class(f"dq-{kind}")
+    return box, btn
+
+
+# ─── Check grouping ───────────────────────────────────────────────────────────
+
+_GROUPED: dict[str, list[str]] = {}
+for _k, _v in CHECKS_REGISTRY.items():
+    _GROUPED.setdefault(_v["dimension"], []).append(_k)
+
+
+def _check_options() -> list[tuple[str, str]]:
+    opts = []
     for dim in DQ_DIMENSIONS:
-        for cname, meta in CHECKS_REGISTRY.items():
-            if meta["dimension"] == dim:
-                check_opts.append((f"[{dim[:4]}] {cname}", cname))
+        for name in _GROUPED.get(dim, []):
+            opts.append((f"[{dim[:4]}] {name}", name))
+    return opts
 
-    check_dd = w.Dropdown(
-        description="Check:",
-        options=check_opts,
-        layout=w.Layout(width="560px"),
-        style={"description_width": "70px"},
-    )
-    check_desc_out = w.Output()
-    threshold_sl = w.FloatSlider(
-        value=100.0, min=0.0, max=100.0, step=0.5,
-        description="Threshold %:",
-        readout_format=".1f",
-        layout=w.Layout(width="440px"),
-        style={"description_width": "110px"},
-    )
-    params_box = w.VBox([])
-    add_btn = w.Button(description="＋ Add Check", button_style="success",
-                       layout=w.Layout(width="140px"))
-    checks_list_out = w.Output()
 
-    def refresh_check_desc(change=None):
-        cname = check_dd.value
-        entry = CHECKS_REGISTRY.get(cname, {})
-        dim = entry.get("dimension", "")
-        desc = entry.get("description", "")
-        with check_desc_out:
-            check_desc_out.clear_output()
-            display(HTML(f"{_dim_badge(dim)}&nbsp; <span style='color:#555'>{desc}</span>"))
-        pw = _make_param_widgets(entry.get("params", []), all_cols)
-        param_widgets_ref[0] = pw
-        params_box.children = list(pw.values()) if pw else [
-            w.HTML("<i style='color:#aaa'>No parameters required</i>")
-        ]
-        if entry.get("table_level"):
-            col_dd.options = ["_TABLE_LEVEL_"]
-            col_dd.value = "_TABLE_LEVEL_"
-        elif entry.get("compound"):
-            col_dd.options = ["_COMPOUND_"]
-            col_dd.value = "_COMPOUND_"
-        elif all_cols:
-            col_dd.options = all_cols
+def _is_complex(check_name: str) -> bool:
+    return bool(_COMPLEX_KEYS & set(CHECKS_REGISTRY.get(check_name, {}).get("params", {}).keys()))
 
-    check_dd.observe(refresh_check_desc, names="value")
 
-    def refresh_checks_list():
-        with checks_list_out:
-            checks_list_out.clear_output()
-            if not configured_checks:
-                display(HTML("<i style='color:#aaa'>No checks added yet</i>"))
+# ═════════════════════════════════════════════════════════════════════════════
+# DashDQWizard
+# ═════════════════════════════════════════════════════════════════════════════
+
+class DashDQWizard:
+    """Databricks-themed 5-tab DQ configuration wizard."""
+
+    def __init__(self, spark=None, config_target: dict | None = None):
+        self.spark = spark or _get_spark()
+        self.env = _load_env()
+
+        # Runtime state
+        self._catalog = self.env.get("default_catalog", "")
+        self._schema  = self.env.get("default_schema", "")
+        self._table   = ""
+        self._full    = ""
+        self._columns: list[tuple[str, str]] = []
+        self._selected_col = ""
+        self._checks: list[dict] = []
+        self._edit_idx: int | None = None     # None = Add mode, int = Edit mode
+
+        # Param widget refs (reset on check select)
+        self._simple_widgets: dict = {}
+        self._complex_widgets: dict = {}
+
+        # Config target (mutable dict handed to the caller)
+        self._config: dict = config_target if config_target is not None else {}
+
+        # Inject CSS
+        display(HTML(_CSS))
+
+        # Build and display
+        self._build()
+
+    # ──────────────────── Build UI ────────────────────────────────────────────
+
+    def _build(self):
+        tab_env    = self._make_env_tab()
+        tab_source = self._make_source_tab()
+        tab_meta   = self._make_meta_tab()
+        tab_checks = self._make_checks_tab()
+        tab_output = self._make_output_tab()
+
+        tabs = w.Tab(children=[tab_env, tab_source, tab_meta, tab_checks, tab_output])
+        for i, title in enumerate([
+            "⚙️  Environment", "📊  Source", "🏷️  Metadata",
+            "✅  Checks",       "📤  Output",
+        ]):
+            tabs.set_title(i, title)
+        tabs.add_class("dq-tabs")
+
+        # Auto-load catalogs when Source tab is activated
+        def _on_tab(change):
+            if change["new"] == 1 and not getattr(self, "_catalogs_loaded", False):
+                self._do_load_catalogs()
+
+        tabs.observe(_on_tab, names="selected_index")
+
+        # Save Config button
+        self._save_status = w.Output()
+        save_box, save_btn = _styled_btn("💾  Save Configuration", "success")
+        save_btn.on_click(self._do_save)
+        save_btn.layout = w.Layout(height="38px", min_width="200px")
+
+        root = w.VBox([
+            tabs,
+            w.HBox([save_box, self._save_status],
+                   layout=w.Layout(align_items="center", margin="14px 0 0 0", gap="12px")),
+        ], layout=w.Layout(max_width="1140px", padding="12px"))
+        root.add_class("dq-root")
+        display(root)
+
+    # ──────────────────── Tab 1: Environment ──────────────────────────────────
+
+    def _make_env_tab(self) -> w.VBox:
+        e = self.env
+        self._e_config_dir  = w.Text(value=e.get("config_dir", ""),
+                                     placeholder="/Workspace/Shared/dashdq_configs",
+                                     layout=w.Layout(width="100%"))
+        self._e_default_cat = w.Text(value=e.get("default_catalog", ""),
+                                     placeholder="e.g. ai_innovation_gold_dev",
+                                     layout=w.Layout(width="100%"))
+        self._e_default_sch = w.Text(value=e.get("default_schema", ""),
+                                     placeholder="e.g. sdh",
+                                     layout=w.Layout(width="100%"))
+        self._e_vol_path    = w.Text(value=e.get("default_volume_path", "/Volumes/"),
+                                     placeholder="/Volumes/catalog/schema/volume",
+                                     layout=w.Layout(width="100%"))
+
+        env_status = w.Output()
+        save_box, save_btn = _styled_btn("💾  Save Environment Config", "secondary")
+        reload_box, reload_btn = _styled_btn("↺  Reload from Disk", "outline")
+
+        def _save(_):
+            self.env.update({
+                "config_dir":          self._e_config_dir.value.strip(),
+                "default_catalog":     self._e_default_cat.value.strip(),
+                "default_schema":      self._e_default_sch.value.strip(),
+                "default_volume_path": self._e_vol_path.value.strip(),
+            })
+            path = _save_env(self.env)
+            with env_status:
+                clear_output(wait=True)
+                display(_info(f"✅ Saved to <code>{path}</code>", "ok"))
+
+        def _reload(_):
+            self.env = _load_env()
+            self._e_config_dir.value  = self.env.get("config_dir", "")
+            self._e_default_cat.value = self.env.get("default_catalog", "")
+            self._e_default_sch.value = self.env.get("default_schema", "")
+            self._e_vol_path.value    = self.env.get("default_volume_path", "/Volumes/")
+            with env_status:
+                clear_output(wait=True)
+                display(_info("Reloaded from disk.", "info"))
+
+        save_btn.on_click(_save)
+        reload_btn.on_click(_reload)
+
+        return w.VBox([
+            _sec("⚙️  Environment Configuration"),
+            _info("These defaults are loaded from <code>~/dashdq_env.json</code> "
+                  "(or <code>$DASHDQ_ENV_PATH</code>). Edit and save to persist across sessions.", "info"),
+
+            w.VBox([
+                _label("DashDQ Config Directory"),
+                _h("<div style='font-size:11px;color:#888;margin-bottom:4px'>"
+                   "Directory where existing DashDQ check config JSON files are stored. "
+                   "Checks for a selected table will be auto-loaded from here.</div>"),
+                self._e_config_dir,
+            ], layout=w.Layout(margin="0 0 12px 0")),
+
+            w.HBox([
+                _field("Default Catalog", self._e_default_cat),
+                w.HTML("&nbsp;&nbsp;"),
+                _field("Default Schema", self._e_default_sch),
+            ]),
+
+            _field("Default Volume Output Path", self._e_vol_path),
+
+            w.HBox([save_box, reload_box], layout=w.Layout(gap="8px")),
+            env_status,
+        ], layout=w.Layout(padding="18px"))
+
+    # ──────────────────── Tab 2: Source ───────────────────────────────────────
+
+    def _make_source_tab(self) -> w.VBox:
+        self._cat_dd = w.Dropdown(
+            options=["— loading catalogs… —"],
+            layout=w.Layout(width="100%"),
+        )
+        self._sch_dd = w.Dropdown(
+            options=["— select schema —"],
+            disabled=True,
+            layout=w.Layout(width="100%"),
+        )
+        self._tbl_dd = w.Dropdown(
+            options=["— select table —"],
+            disabled=True,
+            layout=w.Layout(width="100%"),
+        )
+        self._load_tbl_btn_box, self._load_tbl_btn = _styled_btn("📥  Load Table & Columns", "primary")
+        self._load_tbl_btn.disabled = True
+        self._load_tbl_btn.layout  = w.Layout(height="36px")
+
+        refresh_box, refresh_btn = _styled_btn("↺  Refresh Catalogs", "outline")
+        self._source_info = w.Output()
+
+        self._cat_dd.observe(self._on_catalog_change, names="value")
+        self._sch_dd.observe(self._on_schema_change,  names="value")
+        self._tbl_dd.observe(self._on_table_change,   names="value")
+        self._load_tbl_btn.on_click(self._do_load_table)
+        refresh_btn.on_click(self._do_load_catalogs)
+
+        return w.VBox([
+            _sec("📊  Source Table"),
+            _info("Select a Unity Catalog table. Catalogs load on first visit to this tab.", "info"),
+
+            w.HBox([
+                w.VBox([_label("Catalog"), self._cat_dd], layout=w.Layout(flex="1", margin="0 10px 0 0")),
+                w.VBox([_label("Schema"),  self._sch_dd], layout=w.Layout(flex="1", margin="0 10px 0 0")),
+                w.VBox([_label("Table"),   self._tbl_dd], layout=w.Layout(flex="1")),
+            ], layout=w.Layout(margin="0 0 12px 0", align_items="flex-end")),
+
+            w.HBox([self._load_tbl_btn_box, refresh_box], layout=w.Layout(gap="8px", margin="0 0 10px 0")),
+            self._source_info,
+        ], layout=w.Layout(padding="18px"))
+
+    def _do_load_catalogs(self, _=None):
+        self._catalogs_loaded = True
+        catalogs = _list_catalogs(self.spark) if self.spark else []
+        opts = (["— select catalog —"] + catalogs) if catalogs else ["— no catalogs found —"]
+        self._cat_dd.options = opts
+        self._cat_dd.disabled = not bool(catalogs)
+        default = self.env.get("default_catalog", "")
+        if default and default in catalogs:
+            self._cat_dd.value = default
+
+    def _on_catalog_change(self, change):
+        val = change["new"]
+        if val.startswith("—"):
+            return
+        self._catalog = val
+        schemas = _list_schemas(self.spark, val) if self.spark else []
+        self._sch_dd.options = ["— select schema —"] + schemas
+        self._sch_dd.disabled = not bool(schemas)
+        self._tbl_dd.options = ["— select table —"]
+        self._tbl_dd.disabled = True
+        self._load_tbl_btn.disabled = True
+        default = self.env.get("default_schema", "")
+        if default and default in schemas:
+            self._sch_dd.value = default
+
+    def _on_schema_change(self, change):
+        val = change["new"]
+        if val.startswith("—"):
+            return
+        self._schema = val
+        tables = _list_tables(self.spark, self._catalog, val) if self.spark else []
+        self._tbl_dd.options = ["— select table —"] + tables
+        self._tbl_dd.disabled = not bool(tables)
+        self._load_tbl_btn.disabled = True
+
+    def _on_table_change(self, change):
+        val = change["new"]
+        if not val.startswith("—"):
+            self._table = val
+            self._load_tbl_btn.disabled = False
+
+    def _do_load_table(self, _=None):
+        self._full = f"{self._catalog}.{self._schema}.{self._table}"
+        with self._source_info:
+            clear_output(wait=True)
+            display(_info(f"Loading <code>{self._full}</code>…", "info"))
+
+        cols, count = _table_info(self.spark, self._full) if self.spark else ([], -1)
+        self._columns = cols
+
+        with self._source_info:
+            clear_output(wait=True)
+            if not cols:
+                display(_info("❌ Could not load table. Check permissions.", "error"))
                 return
-            rows = []
-            for i, c in enumerate(configured_checks, 1):
-                dim = CHECKS_REGISTRY.get(c["check_name"], {}).get("dimension", "")
-                short = c["check_name"].replace("expect_", "").replace("_", " ")
-                p_str = ", ".join(f"{k}={v}" for k, v in c.get("params", {}).items()) or "—"
-                rows.append(
-                    f"<tr style='border-bottom:1px solid #eee'>"
-                    f"<td style='padding:4px 8px;color:#888'>{i}</td>"
-                    f"<td style='padding:4px 8px'><b>{c['column']}</b></td>"
-                    f"<td style='padding:4px 8px;font-size:12px'>{short}</td>"
-                    f"<td style='padding:4px 8px'>{_dim_badge(dim)}</td>"
-                    f"<td style='padding:4px 8px'>{c['threshold_pct']}%</td>"
-                    f"<td style='padding:4px 8px;color:#888;font-size:11px'>{p_str}</td>"
-                    f"</tr>"
-                )
-            display(HTML(
-                "<table style='border-collapse:collapse;width:100%'>"
-                "<tr style='background:#f5f5f5;font-size:12px'>"
-                "<th style='padding:4px 8px'>#</th>"
-                "<th style='padding:4px 8px'>Column</th>"
-                "<th style='padding:4px 8px'>Check</th>"
-                "<th style='padding:4px 8px'>Dimension</th>"
-                "<th style='padding:4px 8px'>Threshold</th>"
-                "<th style='padding:4px 8px'>Params</th>"
-                "</tr>" + "".join(rows) + "</table>"
+
+            rc = f"{count:,}" if count >= 0 else "—"
+            schema_rows = "".join(
+                f"<tr><td style='padding:3px 10px;font-family:monospace;border:1px solid #E8EBF0'>{n}</td>"
+                f"<td style='padding:3px 10px;color:#888;border:1px solid #E8EBF0'>{dt}</td></tr>"
+                for n, dt in cols
+            )
+            display(_h(
+                f"<div style='background:#F0F9FF;border:1px solid #BAE6FD;border-radius:5px;"
+                f"padding:10px 14px;margin-bottom:10px;font-size:12px'>"
+                f"✅ <b>{self._full}</b> &nbsp;·&nbsp; "
+                f"<b>{len(cols)}</b> columns &nbsp;·&nbsp; <b>{rc}</b> rows</div>"
+                f"<div style='max-height:220px;overflow-y:auto;border-radius:4px'>"
+                f"<table style='border-collapse:collapse;width:100%;font-size:12px'>"
+                f"<tr style='background:#F7F8FA'>"
+                f"<th style='padding:4px 10px;text-align:left;border:1px solid #E8EBF0'>Column</th>"
+                f"<th style='padding:4px 10px;text-align:left;border:1px solid #E8EBF0'>Type</th></tr>"
+                f"{schema_rows}</table></div>"
             ))
 
-    def on_add(b):
-        col = col_dd.value
-        if not col or col == "(load columns first)":
-            with checks_list_out:
-                checks_list_out.clear_output()
-                print("⚠️  Load columns first (Tab 1).")
-            return
-        configured_checks.append({
-            "check_name": check_dd.value,
-            "column": col,
-            "threshold_pct": round(threshold_sl.value, 1),
-            "params": _read_params(param_widgets_ref[0]),
-        })
-        refresh_checks_list()
-
-    add_btn.on_click(on_add)
-    refresh_check_desc()
-
-    tab2 = w.VBox([
-        w.HTML("<b>Configure a check</b>"),
-        col_dd, check_dd, check_desc_out,
-        threshold_sl,
-        w.HTML("<b>Parameters</b>"),
-        params_box,
-        w.HBox([add_btn]),
-        w.HTML("<hr><b>Configured checks</b>"),
-        checks_list_out,
-    ])
-
-    # ─── Tab 3: Output ────────────────────────────────────────────────────────
-    output_radio = w.RadioButtons(
-        options=[
-            ("DataFrame only (no file saved)", "dataframe"),
-            ("Delta Table",                    "delta"),
-            ("Volume — JSON file",             "volume_json"),
-            ("Volume — CSV file",              "volume_csv"),
-        ],
-        value="dataframe",
-        description="Write to:",
-        style={"description_width": "80px"},
-    )
-    delta_inp = w.Text(
-        description="Delta table:",
-        placeholder="catalog.schema.dq_results",
-        layout=w.Layout(width="440px"),
-        style={"description_width": "120px"},
-    )
-    vol_path_inp = w.Text(
-        description="Volume path:",
-        placeholder="/Volumes/catalog/schema/volume/dq/",
-        layout=w.Layout(width="440px"),
-        style={"description_width": "120px"},
-    )
-    filename_inp = w.Text(
-        description="Filename:",
-        placeholder="(auto-suggested after loading table)",
-        layout=w.Layout(width="440px"),
-        style={"description_width": "120px"},
-    )
-    output_detail = w.VBox([])
-
-    def on_output_change(change=None):
-        otype = output_radio.value
-        if otype == "dataframe":
-            output_detail.children = [
-                w.HTML("<i style='color:#888'>Results returned as a Spark DataFrame and displayed inline.</i>")
-            ]
-        elif otype == "delta":
-            output_detail.children = [delta_inp]
-        else:
-            output_detail.children = [vol_path_inp, filename_inp]
-
-    output_radio.observe(on_output_change, names="value")
-    on_output_change()
-
-    tab3 = w.VBox([
-        w.HTML("<b>Where to write results</b><br>"
-               "<span style='color:#888;font-size:12px'>Output is 1 row per check × column combination</span>"),
-        w.HTML("<br>"),
-        output_radio,
-        output_detail,
-    ])
-
-    # ─── Load Columns handler ─────────────────────────────────────────────────
-    def on_load(b):
-        nonlocal all_cols
-        tbl = table_inp.value.strip()
-        if not tbl:
-            with load_out:
-                load_out.clear_output()
-                print("⚠️  Enter a table name first.")
-            return
-        with load_out:
-            load_out.clear_output()
-            try:
-                df = _spark().table(tbl)
-                all_cols = list(df.columns)
-                col_dd.options = all_cols
-                col_dd.value = all_cols[0] if all_cols else ""
-                if "column_b" in param_widgets_ref[0]:
-                    param_widgets_ref[0]["column_b"].options = [""] + all_cols
-                filename_inp.value = _suggested_filename(tbl)
-                display(HTML(
-                    f"<span style='color:#2E7D32'>✅ {len(all_cols)} columns loaded: "
-                    f"{', '.join(all_cols[:10])}{'…' if len(all_cols) > 10 else ''}</span>"
+            # Auto-load existing checks from config dir
+            cfg_dir = self.env.get("config_dir", "")
+            existing = _load_existing_checks(cfg_dir, self._full)
+            if existing:
+                self._checks = existing
+                display(_info(
+                    f"✅ Loaded <b>{len(existing)} existing check(s)</b> "
+                    f"from config directory.", "ok"
                 ))
-            except Exception as exc:
-                display(HTML(f"<span style='color:#c62828'>❌ {exc}</span>"))
 
-    load_btn.on_click(on_load)
+        # Refresh checks tab
+        self._refresh_col_list()
+        self._update_output_filename()
 
-    # ─── Tabs + Save ──────────────────────────────────────────────────────────
-    tabs = w.Tab(children=[tab1, tab2, tab3])
-    tabs.set_title(0, "1 · Source & Metadata")
-    tabs.set_title(1, "2 · Checks")
-    tabs.set_title(2, "3 · Output")
+    # ──────────────────── Tab 3: Metadata ─────────────────────────────────────
 
-    save_btn = w.Button(description="💾 Save Config", button_style="primary",
-                        layout=w.Layout(width="160px", height="38px"))
-    save_out = w.Output()
+    def _make_meta_tab(self) -> w.VBox:
+        self._m_owner   = w.Text(placeholder="e.g. Jane Smith",   layout=w.Layout(width="100%"))
+        self._m_steward = w.Text(placeholder="e.g. John Doe",     layout=w.Layout(width="100%"))
+        self._m_domain  = w.Text(placeholder="e.g. Finance, Risk",layout=w.Layout(width="100%"))
+        self._m_tags    = w.Text(placeholder="tag1, tag2, tag3",   layout=w.Layout(width="100%"))
+        self._m_desc    = w.Textarea(
+            placeholder="Describe the purpose of this data quality run…",
+            layout=w.Layout(width="100%", height="80px"),
+        )
+        return w.VBox([
+            _sec("🏷️  Metadata"),
+            _info("All metadata fields are stored in every output row, making results fully traceable. "
+                  "All fields are optional.", "info"),
+            w.HBox([
+                _field("Data Owner",   self._m_owner),
+                w.HTML("&nbsp;&nbsp;"),
+                _field("Data Steward", self._m_steward),
+            ]),
+            w.HBox([
+                _field("Business Domain", self._m_domain),
+                w.HTML("&nbsp;&nbsp;"),
+                _field("Tags (comma-separated)", self._m_tags),
+            ]),
+            _field("Description", self._m_desc),
+        ], layout=w.Layout(padding="18px"))
 
-    def on_save(b):
-        tbl = table_inp.value.strip()
-        if not tbl:
-            with save_out:
-                save_out.clear_output()
-                print("⚠️  Enter a table name in Tab 1.")
+    # ──────────────────── Tab 4: Checks ───────────────────────────────────────
+
+    def _make_checks_tab(self) -> w.VBox:
+        # Column selector
+        self._col_select = w.Select(
+            options=[], rows=20,
+            layout=w.Layout(width="270px", height="420px"),
+        )
+        self._col_select.add_class("dq-col-select")
+        self._col_select.observe(self._on_col_select, names="value")
+
+        # Right panel
+        self._right_panel = w.Output()
+
+        # ── Add / Edit check form ──
+        self._check_dd = w.Dropdown(
+            options=_check_options(),
+            layout=w.Layout(width="100%"),
+        )
+        self._check_dd.observe(self._on_check_select, names="value")
+
+        self._threshold = w.BoundedFloatText(
+            value=100.0, min=0, max=100, step=0.5,
+            layout=w.Layout(width="160px"),
+        )
+        self._simple_out  = w.Output()
+        self._complex_out = w.Output()
+
+        self._add_btn_box, self._add_btn = _styled_btn("＋  Add Check", "primary")
+        self._add_btn.on_click(self._do_add_check)
+
+        self._form_title = w.HTML(
+            "<div style='font-size:13px;font-weight:700;color:#1B3A4B;margin-bottom:8px'>Add Check</div>"
+        )
+
+        self._add_form = w.VBox([
+            self._form_title,
+            _label("Check"),
+            self._check_dd,
+            w.HBox([
+                w.VBox([_label("Pass Threshold (%)"), self._threshold]),
+            ], layout=w.Layout(margin="8px 0")),
+            _label("Parameters"),
+            self._simple_out,
+            self._complex_out,
+            w.HBox([self._add_btn_box], layout=w.Layout(margin="8px 0 0 0")),
+        ], layout=w.Layout(
+            border="1px solid #E8EBF0", border_radius="6px",
+            padding="14px", margin="10px 0 0 0",
+            background_color="#FAFBFC",
+        ))
+
+        # Trigger initial param form
+        self._on_check_select({"new": self._check_dd.value})
+
+        right = w.VBox([self._right_panel, self._add_form], layout=w.Layout(flex="1"))
+
+        return w.VBox([
+            _sec("✅  Checks Configuration"),
+            _info("Select a column on the left to view and manage its checks. "
+                  "Multi-column checks (composite PK, compound unique) use the wizard below.", "info"),
+            w.HBox([
+                w.VBox([
+                    _h("<div style='font-size:11px;color:#5C6673;font-weight:600;"
+                       "text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px'>Columns</div>"),
+                    self._col_select,
+                ], layout=w.Layout(margin="0 16px 0 0")),
+                right,
+            ], layout=w.Layout(align_items="flex-start")),
+        ], layout=w.Layout(padding="18px"))
+
+    def _refresh_col_list(self):
+        """Rebuild column selector with check-count badges."""
+        options = []
+        for name, dtype in self._columns:
+            n = sum(1 for c in self._checks if c.get("column") == name)
+            badge = f"  [{n}]" if n else ""
+            options.append(f"{name}  ({dtype}){badge}")
+        self._col_select.options = options
+        if options:
+            self._col_select.value = options[0]
+
+    def _on_col_select(self, change):
+        val = change["new"]
+        if not val:
             return
-        if not configured_checks:
-            with save_out:
-                save_out.clear_output()
-                print("⚠️  Add at least one check in Tab 2.")
-            return
+        # Parse "col_name  (type)  [n]" → just the col name
+        self._selected_col = val.split("  ")[0].strip()
+        self._render_col_checks()
 
-        otype = output_radio.value
-        if otype == "delta":
-            out_cfg = {"type": "delta", "delta_table": delta_inp.value.strip()}
-        elif otype in ("volume_json", "volume_csv"):
-            out_cfg = {
-                "type": otype,
-                "volume_path": vol_path_inp.value.strip(),
-                "filename": filename_inp.value.strip() or _suggested_filename(tbl),
-            }
-        else:
-            out_cfg = {"type": "dataframe"}
+    def _render_col_checks(self):
+        col = self._selected_col
+        dtype = next((dt for n, dt in self._columns if n == col), "")
+        col_checks = [(i, c) for i, c in enumerate(self._checks) if c.get("column") == col]
 
-        config.update({
-            "source": {"table": tbl},
-            "metadata": {
-                "data_owner":      owner_inp.value.strip(),
-                "data_steward":    steward_inp.value.strip(),
-                "business_domain": domain_inp.value.strip(),
-                "description":     desc_inp.value.strip(),
-            },
-            "checks": list(configured_checks),
-            "output": out_cfg,
-        })
-        with save_out:
-            save_out.clear_output()
-            display(HTML(
-                f"<div style='background:#E8F5E9;padding:10px;border-radius:6px'>"
-                f"✅ Config saved — <b>{len(configured_checks)} check(s)</b> on <b>{tbl}</b>.<br>"
-                f"Run <code>report = dashdq.run_checks(config)</code> in the next cell."
+        with self._right_panel:
+            clear_output(wait=True)
+            n = len(col_checks)
+            display(_h(
+                f"<div style='margin-bottom:10px;display:flex;align-items:center;gap:10px'>"
+                f"<span style='font-size:14px;font-weight:700;color:#1B3A4B;"
+                f"font-family:monospace'>{col}</span>"
+                f"<span style='font-size:12px;color:#888'>{dtype}</span>"
+                f"<span style='background:#FF3621;color:#fff;border-radius:10px;"
+                f"padding:1px 8px;font-size:11px;font-weight:700'>{n} check{'s' if n!=1 else ''}</span>"
                 f"</div>"
             ))
 
-    save_btn.on_click(on_save)
+            if not col_checks:
+                display(_info("No checks configured for this column. Use the form below to add.", "info"))
+            else:
+                for glob_idx, chk in col_checks:
+                    self._render_check_row(glob_idx, chk)
 
-    display(w.VBox([
-        w.HTML("<h2 style='color:#1565C0;margin-bottom:4px'>🔍 DashDQ — Data Quality</h2>"),
-        tabs,
-        w.HTML("<hr style='margin:8px 0'>"),
-        w.HBox([save_btn]),
-        save_out,
-    ], layout=w.Layout(padding="16px", border="1px solid #ddd", border_radius="8px",
-                       width="780px")))
+    def _render_check_row(self, glob_idx: int, chk: dict):
+        dim  = CHECKS_REGISTRY.get(chk["check_name"], {}).get("dimension", "")
+        params_str = ", ".join(f"{k}={v}" for k, v in (chk.get("params") or {}).items()) or "—"
+        if len(params_str) > 80:
+            params_str = params_str[:77] + "…"
 
+        # Remove button
+        rm_box, rm_btn = _styled_btn("✕ Remove", "danger")
+        rm_btn.layout = w.Layout(height="28px")
+
+        # Edit button
+        ed_box, ed_btn = _styled_btn("✎ Edit", "outline")
+        ed_btn.layout = w.Layout(height="28px")
+
+        def _remove(_):
+            self._checks.pop(glob_idx)
+            self._refresh_col_list()
+            self._render_col_checks()
+
+        def _edit(_):
+            self._edit_idx = glob_idx
+            self._check_dd.value = chk["check_name"]
+            self._threshold.value = float(chk.get("threshold_pct", 100.0))
+            self._form_title.value = (
+                "<div style='font-size:13px;font-weight:700;color:#1B3A4B;margin-bottom:8px'>"
+                "✎ Edit Check <span style='color:#FF3621;font-size:12px'>(click Update to save)</span></div>"
+            )
+            self._add_btn.description = "✔  Update Check"
+
+        rm_btn.on_click(_remove)
+        ed_btn.on_click(_edit)
+
+        row = w.HBox([
+            _h(
+                f"<div style='flex:1'>"
+                f"<span class='dq-badge dq-{dim}'>{dim}</span>&nbsp; "
+                f"<code style='font-size:12px'>{chk['check_name']}</code>"
+                f"<span style='color:#888;font-size:11px;margin-left:8px'>"
+                f"threshold: {chk.get('threshold_pct', 100)}%</span><br>"
+                f"<span style='font-size:11px;color:#AAA;margin-top:2px;display:block'>"
+                f"{params_str}</span></div>"
+            ),
+            w.HBox([ed_box, rm_box], layout=w.Layout(gap="4px")),
+        ], layout=w.Layout(
+            align_items="flex-start",
+            border="1px solid #E8EBF0",
+            border_radius="4px",
+            padding="7px 10px",
+            margin="0 0 6px 0",
+            background_color="#fff",
+        ))
+        display(row)
+
+    def _on_check_select(self, change):
+        check_name = change["new"] if isinstance(change, dict) else change
+        entry = CHECKS_REGISTRY.get(check_name, {})
+        params = entry.get("params", {})
+
+        self._simple_widgets  = {}
+        self._complex_widgets = {}
+
+        with self._simple_out:
+            clear_output(wait=True)
+            simple_params = {k: v for k, v in params.items() if k not in _COMPLEX_KEYS}
+            if not simple_params:
+                display(_h("<span style='color:#AAA;font-size:12px;font-style:italic'>No extra parameters.</span>"))
+            for pname, default in simple_params.items():
+                widget = self._make_simple_widget(pname, default)
+                if widget:
+                    self._simple_widgets[pname] = widget
+                    display(w.VBox([
+                        _h(f"<div style='font-size:11px;color:#5C6673;font-weight:600;margin-bottom:2px'>"
+                           f"{pname.replace('_',' ').title()}</div>"),
+                        widget,
+                    ], layout=w.Layout(margin="0 0 8px 0")))
+
+        with self._complex_out:
+            clear_output(wait=True)
+            complex_params = {k: v for k, v in params.items() if k in _COMPLEX_KEYS}
+            if complex_params:
+                display(self._make_complex_wizard(check_name, complex_params))
+
+        # Force col to _TABLE_LEVEL_ / _COMPOUND_ when applicable
+        if entry.get("table_level") and self._selected_col not in ("", "_TABLE_LEVEL_"):
+            pass  # handled in _do_add_check
+
+    def _make_simple_widget(self, pname: str, default):
+        """Return a single widget for a simple (non-complex) parameter."""
+        W = w.Layout(width="280px")
+        if pname in ("min_value", "max_value", "sum_value"):
+            return w.FloatText(value=float(default) if default is not None else 0.0, layout=W)
+        if pname == "value":
+            return w.Text(value=str(default) if default is not None else "", layout=W)
+        if pname in ("n_days", "n_minutes"):
+            return w.IntText(value=int(default) if default else 7, layout=W)
+        if pname == "quantile":
+            return w.BoundedFloatText(value=0.5, min=0.0, max=1.0, step=0.01, layout=W)
+        if pname in ("regex", "like_pattern", "strftime_format"):
+            return w.Text(value=str(default) if default else "", layout=w.Layout(width="340px"))
+        if pname in ("value_set", "regex_list", "type_list"):
+            return w.Text(placeholder="A, B, C  (comma-separated)", layout=w.Layout(width="340px"))
+        if pname == "sql_filter":
+            return w.Textarea(
+                placeholder="SQL WHERE clause — matching rows are FAILED\ne.g.  amount < 0 OR amount > 1000000",
+                layout=w.Layout(width="100%", height="60px"),
+            )
+        if pname == "type_":
+            return w.Dropdown(
+                options=["string","int","long","double","float","boolean","date","timestamp","decimal"],
+                layout=W,
+            )
+        return None
+
+    def _make_complex_wizard(self, check_name: str, params: dict) -> w.VBox:
+        """Inline wizard panel for complex parameters (FK, multi-column, etc.)."""
+        col_names = [n for n, _ in self._columns]
+        rows: list = [
+            _h("<div class='dq-wizard-title'>"
+               "⚙️ Advanced Parameters — "
+               f"<code style='font-size:11px'>{check_name}</code></div>"),
+        ]
+
+        if "columns" in params:
+            widget = w.SelectMultiple(
+                options=col_names,
+                rows=min(6, max(3, len(col_names))),
+                layout=w.Layout(width="100%"),
+            )
+            self._complex_widgets["columns"] = widget
+            rows.append(w.VBox([
+                _h("<div style='font-size:11px;color:#5C6673;font-weight:600;margin-bottom:3px'>"
+                   "COLUMNS <span style='color:#AAA;font-weight:400'>(hold Ctrl/⌘ for multi-select)</span></div>"),
+                widget,
+            ], layout=w.Layout(margin="0 0 10px 0")))
+
+        if "reference_table" in params:
+            widget = w.Text(placeholder="catalog.schema.reference_table",
+                            layout=w.Layout(width="100%"))
+            self._complex_widgets["reference_table"] = widget
+            rows.append(w.VBox([_label("Reference Table"), widget],
+                                layout=w.Layout(margin="0 0 8px 0")))
+
+        if "reference_column" in params:
+            widget = w.Text(placeholder="column name in reference table",
+                            layout=w.Layout(width="100%"))
+            self._complex_widgets["reference_column"] = widget
+            rows.append(w.VBox([_label("Reference Column"), widget],
+                                layout=w.Layout(margin="0 0 8px 0")))
+
+        if "column_b" in params:
+            opts = col_names or ["—"]
+            widget = w.Dropdown(options=opts, layout=w.Layout(width="100%"))
+            self._complex_widgets["column_b"] = widget
+            rows.append(w.VBox([_label("Column B"), widget],
+                                layout=w.Layout(margin="0 0 8px 0")))
+
+        if "valid_pairs" in params:
+            widget = w.Textarea(
+                placeholder='[["val_a","val_b"],["val_c","val_d"]]  (JSON array of [a,b] pairs)',
+                layout=w.Layout(width="100%", height="60px"),
+            )
+            self._complex_widgets["valid_pairs"] = widget
+            rows.append(w.VBox([_label("Valid Pairs (JSON)"), widget],
+                                layout=w.Layout(margin="0 0 8px 0")))
+
+        if "expected_schema" in params:
+            widget = w.Textarea(
+                placeholder='[["col1","string"],["col2","int"]]  (JSON list of [name, type])',
+                layout=w.Layout(width="100%", height="60px"),
+            )
+            self._complex_widgets["expected_schema"] = widget
+            rows.append(w.VBox([_label("Expected Schema (JSON)"), widget],
+                                layout=w.Layout(margin="0 0 8px 0")))
+
+        if "check_orphans" in params:
+            widget = w.Checkbox(value=False, description="Check orphans (bidirectional RI)",
+                                style={"description_width": "initial"})
+            self._complex_widgets["check_orphans"] = widget
+            rows.append(widget)
+
+        box = w.VBox(rows)
+        box.add_class("dq-wizard")
+        return box
+
+    def _collect_params(self) -> dict:
+        params: dict = {}
+        for k, wgt in self._simple_widgets.items():
+            val = wgt.value
+            if k in ("value_set", "regex_list", "type_list"):
+                val = [x.strip() for x in str(val).split(",") if x.strip()]
+            elif k in ("min_value", "max_value", "sum_value", "quantile"):
+                try:
+                    val = float(val)
+                except (TypeError, ValueError):
+                    val = None
+            elif k in ("n_days", "n_minutes"):
+                try:
+                    val = int(val)
+                except (TypeError, ValueError):
+                    val = 1
+            params[k] = val
+
+        for k, wgt in self._complex_widgets.items():
+            val = wgt.value
+            if k in ("valid_pairs", "expected_schema"):
+                try:
+                    val = json.loads(val) if val else ([] if k == "valid_pairs" else {})
+                except Exception:
+                    val = [] if k == "valid_pairs" else {}
+            elif k == "columns":
+                val = list(val)        # SelectMultiple returns a tuple
+            elif k == "check_orphans":
+                val = bool(val)
+            params[k] = val
+        return params
+
+    def _do_add_check(self, _=None):
+        check_name = self._check_dd.value
+        threshold  = round(float(self._threshold.value), 1)
+        entry      = CHECKS_REGISTRY.get(check_name, {})
+
+        if entry.get("table_level"):
+            col = "_TABLE_LEVEL_"
+        elif entry.get("compound") or "columns" in self._complex_widgets:
+            col = "_COMPOUND_"
+        else:
+            col = self._selected_col or "_TABLE_LEVEL_"
+
+        params = self._collect_params()
+        new_chk = {"check_name": check_name, "column": col,
+                   "threshold_pct": threshold, "params": params}
+
+        if self._edit_idx is not None:
+            self._checks[self._edit_idx] = new_chk
+            self._edit_idx = None
+            self._add_btn.description = "＋  Add Check"
+            self._form_title.value = (
+                "<div style='font-size:13px;font-weight:700;color:#1B3A4B;margin-bottom:8px'>Add Check</div>"
+            )
+        else:
+            self._checks.append(new_chk)
+
+        self._refresh_col_list()
+        self._render_col_checks()
+
+    # ──────────────────── Tab 5: Output ───────────────────────────────────────
+
+    def _make_output_tab(self) -> w.VBox:
+        self._o_df       = w.Checkbox(value=True,  description="In-memory DataFrame",
+                                      style={"description_width": "initial"})
+        self._o_delta    = w.Checkbox(value=False, description="Delta Table",
+                                      style={"description_width": "initial"})
+        self._o_vol_json = w.Checkbox(value=False, description="Volume — JSON file",
+                                      style={"description_width": "initial"})
+        self._o_vol_csv  = w.Checkbox(value=False, description="Volume — CSV file",
+                                      style={"description_width": "initial"})
+
+        self._o_delta_tbl = w.Text(placeholder="catalog.schema.dq_results",
+                                   layout=w.Layout(width="100%"))
+        self._o_vol_path  = w.Text(value=self.env.get("default_volume_path", "/Volumes/"),
+                                   placeholder="/Volumes/catalog/schema/volume",
+                                   layout=w.Layout(width="100%"))
+        self._o_filename  = w.Text(placeholder="auto-suggested",
+                                   layout=w.Layout(width="100%"))
+
+        sug_box, sug_btn = _styled_btn("✨ Suggest", "outline")
+        sug_btn.on_click(self._update_output_filename)
+
+        # Conditional panels
+        self._delta_panel = w.VBox([
+            w.VBox([_label("Delta Table Name"), self._o_delta_tbl]),
+        ], layout=w.Layout(
+            border="1px solid #E8EBF0", border_radius="4px",
+            padding="10px 14px", margin="0 0 8px 0",
+            display="none",
+        ))
+
+        self._vol_panel = w.VBox([
+            _field("Volume Path", self._o_vol_path),
+            w.HBox([
+                w.VBox([_label("Filename (no extension)"), self._o_filename], layout=w.Layout(flex="1")),
+                w.VBox([_h("&nbsp;"), sug_box]),
+            ], layout=w.Layout(align_items="flex-end", gap="8px")),
+        ], layout=w.Layout(
+            border="1px solid #E8EBF0", border_radius="4px",
+            padding="10px 14px", margin="0 0 8px 0",
+            display="none",
+        ))
+
+        def _toggle_delta(change):
+            self._delta_panel.layout.display = "" if change["new"] else "none"
+
+        def _toggle_vol(change):
+            show = self._o_vol_json.value or self._o_vol_csv.value
+            self._vol_panel.layout.display = "" if show else "none"
+
+        self._o_delta.observe(_toggle_delta, names="value")
+        self._o_vol_json.observe(_toggle_vol, names="value")
+        self._o_vol_csv.observe(_toggle_vol, names="value")
+
+        return w.VBox([
+            _sec("📤  Output Configuration"),
+            _info("Select <b>one or more</b> output destinations. "
+                  "Results are 1 row per check × column with all metadata.", "info"),
+            w.VBox([
+                _h("<div style='font-size:12px;font-weight:600;color:#1B3A4B;"
+                   "margin-bottom:8px'>Output Destinations</div>"),
+                self._o_df,
+                self._o_delta,
+                self._o_vol_json,
+                self._o_vol_csv,
+            ], layout=w.Layout(
+                border="1px solid #E8EBF0", border_radius="6px",
+                padding="14px", margin="0 0 12px 0",
+            )),
+            self._delta_panel,
+            self._vol_panel,
+        ], layout=w.Layout(padding="18px"))
+
+    def _update_output_filename(self, _=None):
+        short = self._full.split(".")[-1] if "." in self._full else (self._full or "table")
+        self._o_filename.value = f"dq_{short}_{datetime.now().strftime('%Y%m%d')}"
+
+    # ──────────────────── Save Config ─────────────────────────────────────────
+
+    def _do_save(self, _=None):
+        types = []
+        if self._o_df.value:       types.append("dataframe")
+        if self._o_delta.value:    types.append("delta")
+        if self._o_vol_json.value: types.append("volume_json")
+        if self._o_vol_csv.value:  types.append("volume_csv")
+        if not types:
+            types = ["dataframe"]
+
+        self._config.clear()
+        self._config.update({
+            "source": {"table": self._full},
+            "metadata": {
+                "data_owner":      self._m_owner.value.strip(),
+                "data_steward":    self._m_steward.value.strip(),
+                "business_domain": self._m_domain.value.strip(),
+                "description":     self._m_desc.value.strip(),
+                "tags":            [t.strip() for t in self._m_tags.value.split(",") if t.strip()],
+            },
+            "checks": list(self._checks),
+            "output": {
+                "types":       types,
+                "delta_table": self._o_delta_tbl.value.strip(),
+                "volume_path": self._o_vol_path.value.strip(),
+                "filename":    self._o_filename.value.strip(),
+            },
+        })
+
+        n = len(self._checks)
+        with self._save_status:
+            clear_output(wait=True)
+            display(_info(
+                f"✅ Config saved — <b>{n} check{'s' if n!=1 else ''}</b> on "
+                f"<code>{self._full or '(no table)'}</code>. "
+                "Now call <code>dashdq.run_checks(config)</code>.",
+                "ok",
+            ))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Public API
+# ═════════════════════════════════════════════════════════════════════════════
+
+def configure(spark=None) -> dict:
+    """
+    Open the DashDQ wizard. Returns a dict that fills in when you click
+    **Save Configuration**. Pass it to ``dashdq.run_checks(config)``.
+
+    Tabs:
+      ⚙️ Environment — set default paths and catalog
+      📊 Source      — pick catalog → schema → table from dropdowns
+      🏷️ Metadata    — owner, steward, domain, tags, description
+      ✅ Checks      — add / edit / remove checks per column
+      📤 Output      — choose one or more output destinations
+    """
+    config: dict = {}
+    DashDQWizard(spark=spark, config_target=config)
     return config
 
 
-# ── run_checks() public wrapper ───────────────────────────────────────────────
-
 def run_checks(config: dict, spark=None):
-    """Execute the config returned by configure() and display the DQReport."""
+    """Execute config returned by ``configure()`` and display the DQReport."""
     from dashdq.suite import run_checks as _run
-    from IPython.display import display, HTML
-
     report = _run(config, spark)
-    report.display()
 
     s = report.summary()
     display(HTML(
-        f"<div style='background:#E3F2FD;padding:8px 12px;border-radius:6px;margin-top:8px'>"
-        f"<b>Summary:</b> {s['total_checks']} checks — "
-        f"<span style='color:#2E7D32'><b>{s['passed']}</b> PASS</span> / "
-        f"<span style='color:#c62828'><b>{s['failed']}</b> FAIL</span> — "
-        f"{s['pass_rate_pct']}% pass rate"
+        f"<div class='dq-summary'>"
+        f"<span>Total: {s['total_checks']}</span>"
+        f"<span class='dq-pass'>✅ Passed: {s['passed']}</span>"
+        f"<span class='dq-fail'>❌ Failed: {s['failed']}</span>"
+        f"<span>Pass Rate: {s['pass_rate_pct']}%</span>"
         f"</div>"
     ))
+    report.display()
     return report
 
 
-# ── launch() — all-in-one ─────────────────────────────────────────────────────
+def launch(spark=None):
+    """All-in-one: open wizard + Run Checks button."""
+    config = configure(spark)
+    result_out = w.Output()
+    run_box, run_btn = _styled_btn("▶  Run Checks", "primary")
+    run_btn.layout = w.Layout(height="38px", min_width="160px")
 
-def launch():
-    """Open the DashDQ wizard. Configure checks, then click Run Checks."""
-    try:
-        import ipywidgets as w
-        from IPython.display import display
-    except ImportError:
-        raise RuntimeError("ipywidgets required. Run: %pip install ipywidgets")
-
-    run_out = w.Output()
-    run_btn = w.Button(description="▶ Run Checks", button_style="success",
-                       layout=w.Layout(width="160px", height="38px"))
-
-    config = configure()
-
-    def on_run(b):
-        with run_out:
-            run_out.clear_output()
-            if not config:
-                print("⚠️  Click 'Save Config' first.")
+    def _run(_):
+        with result_out:
+            clear_output(wait=True)
+            if not config.get("checks"):
+                display(_info("⚠️ Click Save Configuration first and add at least one check.", "warn"))
                 return
-            print("⏳ Running checks…")
+            display(_info("⏳ Running checks…", "info"))
             try:
-                run_checks(config)
+                run_checks(config, spark)
             except Exception as exc:
-                print(f"❌ {exc}")
+                display(_info(f"❌ {exc}", "error"))
 
-    run_btn.on_click(on_run)
-    display(w.VBox([w.HTML("<hr>"), run_btn, run_out]))
+    run_btn.on_click(_run)
+    display(w.VBox([
+        _h("<hr style='margin:16px 0'>"),
+        run_box,
+        result_out,
+    ]))
