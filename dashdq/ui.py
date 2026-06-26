@@ -1039,10 +1039,14 @@ class DashDQWizard:
 
     def _do_save(self, _=None):
         types = []
-        if self._o_df.value:       types.append("dataframe")
-        if self._o_delta.value:    types.append("delta")
-        if self._o_vol_json.value: types.append("volume_json")
-        if self._o_vol_csv.value:  types.append("volume_csv")
+        if self._o_df.value:
+            types.append("dataframe")
+        if self._o_delta.value:
+            types.append("delta")
+        if self._o_vol_json.value:
+            types.append("volume_json")
+        if self._o_vol_csv.value:
+            types.append("volume_csv")
         if not types:
             types = ["dataframe"]
 

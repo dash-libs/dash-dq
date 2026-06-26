@@ -8,8 +8,6 @@ fn signature:
 """
 from __future__ import annotations
 from dataclasses import dataclass
-import json
-import re as _re
 
 
 DQ_DIMENSIONS = ["Completeness", "Accuracy", "Integrity", "Consistency"]
@@ -436,7 +434,6 @@ def _custom_sql_filter(df, col, p):
     Rows matching sql_filter are FAILED rows.
     Example: sql_filter = "age < 0 OR salary IS NULL"
     """
-    from pyspark.sql import functions as F
     sql_filter = p.get("sql_filter", "1=0")
     n = df.count()
     fail = df.filter(sql_filter).count()
@@ -501,7 +498,6 @@ def _unique_proportion_between(df, col, p):
 
 def _distinct_in_set(df, col, p):
     """All distinct values must be in value_set."""
-    from pyspark.sql import functions as F
     value_set = set(p.get("value_set", []))
     distinct_vals = {r[0] for r in df.select(col).distinct().collect() if r[0] is not None}
     outliers = distinct_vals - value_set
@@ -511,7 +507,6 @@ def _distinct_in_set(df, col, p):
 
 def _distinct_contains_set(df, col, p):
     """Distinct values must contain all items in value_set."""
-    from pyspark.sql import functions as F
     required = set(p.get("value_set", []))
     distinct_vals = {r[0] for r in df.select(col).distinct().collect() if r[0] is not None}
     ok = required.issubset(distinct_vals)
@@ -520,7 +515,6 @@ def _distinct_contains_set(df, col, p):
 
 def _distinct_equal_set(df, col, p):
     """Distinct values must exactly equal value_set (no more, no less)."""
-    from pyspark.sql import functions as F
     expected = set(p.get("value_set", []))
     distinct_vals = {r[0] for r in df.select(col).distinct().collect() if r[0] is not None}
     ok = expected == distinct_vals
