@@ -17,4 +17,9 @@ from dashdq.ui import configure, launch
 from dashdq.checks import CHECKS_REGISTRY, CheckResult
 
 __version__ = "0.1.0"
+__author__ = "Darshan Shah"
+__email__ = "darshan.innovation@gmail.com"
+__license__ = "Apache-2.0"
+__url__ = "https://github.com/dash-libs/dash-dq"
+
 __all__ = ["configure", "run_checks", "launch", "DQReport", "CheckResult", "CHECKS_REGISTRY"]

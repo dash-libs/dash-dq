@@ -7,7 +7,7 @@
 
 **DashDQ** is a Databricks-native data quality library. It provides an interactive notebook wizard and a Python API to run **60+ production-ready checks** on Unity Catalog tables — built entirely on PySpark and the Databricks SDK. No Great Expectations or external DQ frameworks required.
 
-> Part of the [Dashlibs](https://github.com/dash-libs) suite for Databricks.
+> Part of the [Dashlibs](https://github.com/dash-libs) suite for Databricks — built by [Darshan Shah](https://github.com/dash-libs).
 
 ---
 
