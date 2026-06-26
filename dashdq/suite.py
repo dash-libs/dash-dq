@@ -143,18 +143,22 @@ class DQReport:
                 results["delta"] = sdf
 
             elif otype in ("volume_json", "volume_csv"):
+                # vol_path already contains catalog/schema from the wizard
                 vol_path = output_cfg.get("volume_path", "").rstrip("/")
-                filename = output_cfg.get("filename") or f"dq_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                table_name = self.config.get("source", {}).get("table", "")
+                tbl = table_name.split(".")[-1] if table_name else "table"
+                filename = (output_cfg.get("filename")
+                            or f"dq_{tbl}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
                 ext = "json" if otype == "volume_json" else "csv"
+                os.makedirs(vol_path, exist_ok=True)
                 full = f"{vol_path}/{filename}.{ext}"
                 pdf = self.to_pandas()
-                os.makedirs(vol_path, exist_ok=True)
                 if ext == "json":
                     pdf.to_json(full, orient="records", indent=2)
                 else:
                     pdf.to_csv(full, index=False)
                 print(f"✅ Saved to: {full}")
-                # Also write table-level summary alongside
+                # Summary file alongside: same dir, _summary suffix
                 summary_file = f"{vol_path}/{filename}_summary.{ext}"
                 spdf = self.table_summary_pandas()
                 if ext == "json":

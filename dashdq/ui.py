@@ -229,9 +229,22 @@ def _save_env(cfg: dict) -> str:
 
 
 def _load_existing_checks(config_dir: str, table: str) -> list[dict]:
+    """Load checks from config_dir/catalog/schema/table.json (or legacy flat layout)."""
     if not config_dir or not os.path.isdir(config_dir):
         return []
-    checks: list[dict] = []
+    # Preferred: config_dir/catalog/schema/table.json
+    parts = table.split(".")
+    if len(parts) == 3:
+        cat, sch, tbl = parts
+        direct = os.path.join(config_dir, cat, sch, f"{tbl}.json")
+        if os.path.exists(direct):
+            try:
+                with open(direct) as f:
+                    cfg = json.load(f)
+                return cfg.get("checks", [])
+            except Exception:
+                pass
+    # Fallback: scan flat directory (legacy or single-schema setups)
     for fname in sorted(os.listdir(config_dir)):
         if not fname.endswith(".json"):
             continue
@@ -239,10 +252,10 @@ def _load_existing_checks(config_dir: str, table: str) -> list[dict]:
             with open(os.path.join(config_dir, fname)) as f:
                 cfg = json.load(f)
             if cfg.get("source", {}).get("table") == table:
-                checks.extend(cfg.get("checks", []))
+                return cfg.get("checks", [])
         except Exception:
             pass
-    return checks
+    return []
 
 
 # ─── Widget helpers ───────────────────────────────────────────────────────────
@@ -1019,7 +1032,13 @@ class DashDQWizard:
             show = self._o_vol_json.value or self._o_vol_csv.value
             self._vol_panel.layout.display = "" if show else "none"
             if show and not self._o_vol_path.value.strip():
-                self._o_vol_path.value = self.env.get("default_volume_path", "/Volumes/")
+                base = self.env.get("default_volume_path", "/Volumes/").rstrip("/")
+                if self._full:
+                    parts = self._full.split(".")
+                    cat, sch = (parts + ["", ""])[:2]
+                    self._o_vol_path.value = f"{base}/{cat}/{sch}"
+                else:
+                    self._o_vol_path.value = base
 
         self._o_delta.observe(_toggle_delta, names="value")
         self._o_vol_json.observe(_toggle_vol, names="value")
@@ -1084,14 +1103,16 @@ class DashDQWizard:
 
         n = len(self._checks)
 
-        # Persist to disk if a config directory is configured
+        # Persist to disk: config_dir / catalog / schema / table.json
         config_dir = self.env.get("config_dir", "").strip()
         saved_path = ""
-        if config_dir:
+        if config_dir and self._full:
             try:
-                os.makedirs(config_dir, exist_ok=True)
-                safe_name = (self._full or "table").replace(".", "__")
-                saved_path = os.path.join(config_dir, f"{safe_name}.json")
+                parts = self._full.split(".")
+                cat, sch, tbl = (parts + ["", "", ""])[:3]
+                target_dir = os.path.join(config_dir, cat, sch)
+                os.makedirs(target_dir, exist_ok=True)
+                saved_path = os.path.join(target_dir, f"{tbl}.json")
                 with open(saved_path, "w") as f:
                     json.dump(self._config, f, indent=2)
             except Exception as exc:
