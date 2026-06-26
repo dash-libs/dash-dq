@@ -88,12 +88,39 @@ jobs:
       - name: Bump patch version
         id: bump
         run: |
-          current=$(hatch version)
-          hatch version patch
-          new=$(hatch version)
-          echo "version=$new" >> $GITHUB_OUTPUT
-          echo "prev_version=$current" >> $GITHUB_OUTPUT
-          echo "Bumped $current → $new"
+          python3 - << 'PYEOF'
+          import re, os
+
+          # Read current version from pyproject.toml
+          with open("pyproject.toml") as f:
+              content = f.read()
+          m = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+          current = m.group(1)
+          major, minor, patch = current.split(".")
+          new = f"{major}.{minor}.{int(patch)+1}"
+
+          # Update pyproject.toml
+          new_content = re.sub(
+              r'^(version\s*=\s*")[^"]+(")',
+              rf'\g<1>{new}\g<2>',
+              content, flags=re.MULTILINE
+          )
+          with open("pyproject.toml", "w") as f:
+              f.write(new_content)
+
+          # Update __init__.py
+          with open("dashdq/__init__.py") as f:
+              init = f.read()
+          init = re.sub(r'__version__\s*=\s*"[^"]+"', f'__version__ = "{new}"', init)
+          with open("dashdq/__init__.py", "w") as f:
+              f.write(init)
+
+          # Write outputs
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"version={new}\n")
+              f.write(f"prev_version={current}\n")
+          print(f"Bumped {current} → {new}")
+          PYEOF
 
       - name: Regenerate docs into repo
         run: |
