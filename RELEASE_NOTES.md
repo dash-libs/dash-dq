@@ -1,10 +1,9 @@
-## DashDQ v0.1.2
+## DashDQ v0.1.3
 
 **Released:** 2026-06-26
-**Previous:** v0.1.1
+**Previous:** v0.1.2
 
-### Notes
-Major UI redesign: Databricks theme, 5-tab wizard, Unity Catalog dropdowns, multi-check per column, complex-check wizard, multi-output destinations
+
 
 ### What's included
 - All tests passing across Python 3.9, 3.10, 3.11, 3.12
@@ -13,12 +12,12 @@ Major UI redesign: Databricks theme, 5-tab wizard, Unity Catalog dropdowns, mult
 
 ### Install
 ```bash
-pip install dash-dq==0.1.2
+pip install dash-dq==0.1.3
 ```
 
 ### Quick Start (Databricks notebook)
 ```python
-%pip install dash-dq==0.1.2
+%pip install dash-dq==0.1.3
 import dashdq
 dashdq.launch()
 ```
