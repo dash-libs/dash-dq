@@ -1,151 +1,173 @@
+"""run_checks(config) → DQReport.  One result row per check × column."""
 from __future__ import annotations
-from typing import Optional
 import json
-from dashdq import checks as C
-from dashdq.checks import CheckResult
-
-
-class DQSuite:
-    """
-    Programmatic API for data quality checks.
-
-    Usage::
-        suite = DQSuite(df)
-        suite.expect_no_nulls("customer_id")
-        suite.expect_unique("account_number")
-        report = suite.run()
-    """
-
-    def __init__(self, df=None, table: str = None, query: str = None):
-        self._df = self._resolve_input(df, table, query)
-        self._rules: list[dict] = []
-
-    def _resolve_input(self, df, table, query):
-        if df is not None:
-            return df
-        try:
-            from pyspark.sql import SparkSession
-            spark = SparkSession.getActiveSession()
-            if table:
-                return spark.table(table)
-            if query:
-                return spark.sql(query)
-        except Exception as e:
-            raise ValueError(f"Could not load data: {e}")
-        raise ValueError("Provide df, table, or query")
-
-    def expect_no_nulls(self, column: str):
-        self._rules.append({"type": "no_nulls", "column": column})
-        return self
-
-    def expect_null_rate(self, column: str, max_rate: float):
-        self._rules.append({"type": "null_rate", "column": column, "max_rate": max_rate})
-        return self
-
-    def expect_unique(self, column: str):
-        self._rules.append({"type": "unique", "column": column})
-        return self
-
-    def expect_values_in_set(self, column: str, allowed: list):
-        self._rules.append({"type": "values_in_set", "column": column, "allowed": allowed})
-        return self
-
-    def expect_column_range(self, column: str, min_val=None, max_val=None):
-        self._rules.append({"type": "column_range", "column": column, "min_val": min_val, "max_val": max_val})
-        return self
-
-    def expect_regex(self, column: str, pattern: str):
-        self._rules.append({"type": "regex", "column": column, "pattern": pattern})
-        return self
-
-    def expect_min_rows(self, min_rows: int):
-        self._rules.append({"type": "row_count", "min_rows": min_rows})
-        return self
-
-    def expect_freshness(self, timestamp_column: str, max_age_hours: float):
-        self._rules.append({"type": "freshness", "column": timestamp_column, "max_age_hours": max_age_hours})
-        return self
-
-    def from_config(self, config: dict):
-        """Load rules from a dict (used by the UI)."""
-        self._rules = config.get("rules", [])
-        return self
-
-    def run(self, save_to: Optional[str] = None) -> "DQReport":
-        results = []
-        for rule in self._rules:
-            rtype = rule["type"]
-            col = rule.get("column")
-            if rtype == "no_nulls":
-                results.append(C.check_no_nulls(self._df, col))
-            elif rtype == "null_rate":
-                results.append(C.check_null_rate(self._df, col, rule["max_rate"]))
-            elif rtype == "unique":
-                results.append(C.check_unique(self._df, col))
-            elif rtype == "values_in_set":
-                results.append(C.check_values_in_set(self._df, col, rule["allowed"]))
-            elif rtype == "column_range":
-                results.append(C.check_column_range(self._df, col, rule.get("min_val"), rule.get("max_val")))
-            elif rtype == "regex":
-                results.append(C.check_regex(self._df, col, rule["pattern"]))
-            elif rtype == "row_count":
-                results.append(C.check_row_count(self._df, rule["min_rows"]))
-            elif rtype == "freshness":
-                results.append(C.check_freshness(self._df, col, rule["max_age_hours"]))
-
-        report = DQReport(results)
-        if save_to:
-            report.save(save_to)
-        return report
+from datetime import datetime
+from dashdq.checks import CHECKS_REGISTRY, CheckResult
 
 
 class DQReport:
-    def __init__(self, results: list[CheckResult]):
+    def __init__(self, results: list[CheckResult], config: dict):
         self.results = results
-        self.passed = sum(1 for r in results if r.passed)
-        self.failed = sum(1 for r in results if not r.passed)
-        self.total = len(results)
+        self.config = config
 
-    def summary(self) -> str:
-        status = "✅ PASSED" if self.failed == 0 else "❌ FAILED"
-        return f"{status} — {self.passed}/{self.total} checks passed"
+    # ── Outputs ───────────────────────────────────────────────────────────────
 
     def to_dict(self) -> list[dict]:
-        return [
-            {
-                "check": r.check_name,
-                "column": r.column,
-                "passed": r.passed,
-                "detail": r.detail,
-                "actual": str(r.actual_value),
-                "threshold": str(r.threshold),
-            }
-            for r in self.results
-        ]
+        return [r.to_dict() for r in self.results]
 
-    def to_spark_df(self):
-        from pyspark.sql import SparkSession
-        spark = SparkSession.getActiveSession()
-        return spark.createDataFrame(self.to_dict())
+    def to_spark_df(self, spark=None):
+        if spark is None:
+            from pyspark.sql import SparkSession
+            spark = SparkSession.getActiveSession()
+        return spark.createDataFrame([r.to_dict() for r in self.results])
 
-    def save(self, delta_table: str):
-        from pyspark.sql import functions as F
-        df = self.to_spark_df().withColumn("run_ts", F.current_timestamp())
-        df.write.format("delta").mode("append").saveAsTable(delta_table)
-        print(f"Results saved to {delta_table}")
+    def to_pandas(self):
+        import pandas as pd
+        return pd.DataFrame(self.to_dict())
 
     def display(self):
         try:
             from IPython.display import display as ipy_display
-            import pandas as pd
-            df = pd.DataFrame(self.to_dict())
-            df["status"] = df["passed"].map({True: "✅", False: "❌"})
-            ipy_display(df[["status", "check", "column", "detail"]])
+            ipy_display(self.to_pandas())
         except Exception:
-            print(self.summary())
             for r in self.results:
-                icon = "✅" if r.passed else "❌"
-                print(f"  {icon} {r.check_name} [{r.column}]: {r.detail}")
+                print(r)
 
-    def __repr__(self):
-        return self.summary()
+    def summary(self) -> dict:
+        total = len(self.results)
+        passed = sum(1 for r in self.results if r.status == "PASS")
+        return {
+            "total_checks": total,
+            "passed": passed,
+            "failed": total - passed,
+            "pass_rate_pct": round(passed / total * 100, 1) if total else 0,
+        }
+
+    def save(self, output_cfg: dict, spark=None):
+        """Persist results according to output_cfg (from configure())."""
+        otype = output_cfg.get("type", "dataframe")
+
+        if otype == "dataframe":
+            return self.to_spark_df(spark)
+
+        if otype == "delta":
+            sdf = self.to_spark_df(spark)
+            table = output_cfg["delta_table"]
+            (sdf.write.format("delta")
+                .mode("append")
+                .option("mergeSchema", "true")
+                .saveAsTable(table))
+            print(f"✅ Saved to Delta table: {table}")
+            return sdf
+
+        if otype in ("volume_json", "volume_csv"):
+            import os
+            path = output_cfg.get("volume_path", "").rstrip("/")
+            filename = output_cfg.get("filename", f"dq_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            ext = "json" if otype == "volume_json" else "csv"
+            full = f"{path}/{filename}.{ext}"
+            pdf = self.to_pandas()
+            os.makedirs(path, exist_ok=True)
+            if ext == "json":
+                pdf.to_json(full, orient="records", indent=2)
+            else:
+                pdf.to_csv(full, index=False)
+            print(f"✅ Saved to: {full}")
+            return full
+
+        return self.to_spark_df(spark)
+
+
+def run_checks(config: dict, spark=None) -> DQReport:
+    """
+    Execute all checks defined in config and return a DQReport.
+
+    config shape::
+
+        {
+            "source":   {"table": "catalog.schema.table"},
+            "metadata": {"data_owner": "", "data_steward": "", ...},  # optional
+            "checks": [
+                {"check_name": "expect_column_values_to_not_be_null",
+                 "column": "customer_id",
+                 "threshold_pct": 100.0,
+                 "params": {}},
+                ...
+            ],
+            "output":   {"type": "delta", "delta_table": "..."}       # optional
+        }
+    """
+    if not config:
+        raise ValueError("Config is empty — run dashdq.configure() first and click 'Save Config'.")
+
+    if spark is None:
+        from pyspark.sql import SparkSession
+        spark = SparkSession.getActiveSession()
+
+    table = config["source"]["table"]
+    df = spark.table(table)
+    total_cols = len(df.columns)
+    metadata = config.get("metadata", {})
+    run_ts = datetime.now().isoformat(timespec="seconds")
+
+    checked_cols: set[str] = set()
+    results: list[CheckResult] = []
+
+    for chk in config.get("checks", []):
+        name = chk["check_name"]
+        col = chk.get("column", "_TABLE_LEVEL_")
+        threshold = float(chk.get("threshold_pct", 100.0))
+        params = chk.get("params", {})
+
+        entry = CHECKS_REGISTRY.get(name)
+        if not entry:
+            continue
+
+        try:
+            total, passed, failed = entry["fn"](df, col, params)
+            passed_pct = round(passed / total * 100, 2) if total > 0 else 0.0
+            status = "PASS" if passed_pct >= threshold else "FAIL"
+            if not entry.get("table_level"):
+                checked_cols.add(col)
+        except Exception as exc:
+            total = passed = failed = 0
+            passed_pct = 0.0
+            status = f"ERROR: {exc}"
+
+        results.append(CheckResult(
+            table_name=table,
+            column_name=col,
+            check_name=name,
+            dq_dimension=entry["dimension"],
+            total_rows=total,
+            passed_rows=passed,
+            failed_rows=failed,
+            passed_pct=passed_pct,
+            threshold_pct=threshold,
+            status=status,
+            check_params=json.dumps(params),
+            run_timestamp=run_ts,
+            data_owner=metadata.get("data_owner", ""),
+            data_steward=metadata.get("data_steward", ""),
+            business_domain=metadata.get("business_domain", ""),
+            table_description=metadata.get("description", ""),
+            columns_checked=0,       # back-filled below
+            total_columns=total_cols,
+            column_coverage_pct=0.0,
+        ))
+
+    # Back-fill coverage (same value for all rows — table-level metric)
+    n_covered = len(checked_cols)
+    coverage = round(n_covered / total_cols * 100, 2) if total_cols else 0.0
+    for r in results:
+        r.columns_checked = n_covered
+        r.column_coverage_pct = coverage
+
+    report = DQReport(results, config)
+
+    # Auto-save if output block present and not dataframe-only
+    output_cfg = config.get("output", {})
+    if output_cfg and output_cfg.get("type", "dataframe") != "dataframe":
+        report.save(output_cfg, spark)
+
+    return report
