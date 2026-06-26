@@ -182,25 +182,21 @@ def _list_catalogs(spark) -> list[str]:
 
 
 def _list_schemas(spark, catalog: str) -> list[str]:
+    # r[0] = databaseName/namespace (schema name); r[1] = comment — use r[0]
     try:
-        return sorted(r[1] for r in spark.sql(f"SHOW SCHEMAS IN `{catalog}`").collect())
+        rows = spark.sql(f"SHOW SCHEMAS IN `{catalog}`").collect()
+        return sorted(r[0] for r in rows if r[0])
     except Exception:
-        try:
-            return sorted(r[0] for r in spark.sql("SHOW DATABASES").collect())
-        except Exception:
-            return []
+        return []
 
 
 def _list_tables(spark, catalog: str, schema: str) -> list[str]:
+    # r[0] = database, r[1] = tableName, r[2] = isTemporary
     try:
         rows = spark.sql(f"SHOW TABLES IN `{catalog}`.`{schema}`").collect()
-        return sorted(r[1] for r in rows)
+        return sorted(r[1] for r in rows if not r[2])
     except Exception:
-        try:
-            rows = spark.sql(f"SHOW TABLES IN `{schema}`").collect()
-            return sorted(r[1] for r in rows)
-        except Exception:
-            return []
+        return []
 
 
 def _table_info(spark, full_table: str) -> tuple[list[tuple[str, str]], int]:
